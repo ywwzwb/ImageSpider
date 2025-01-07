@@ -141,7 +141,7 @@ func (s *DB) GetMetaWithoutLocalPath(source string, maxSize int) []models.ImageM
 	}
 	return metas
 }
-func (s *DB) UpdateLocalPathForMeth(meta models.ImageMeta) error {
+func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
 	_, err := s.db.Exec("UPDATE images SET local_path = $1 WHERE id = $2 AND source_id = $3 and post_time=$4", meta.LocalPath, meta.ID, meta.SourceID, meta.PostTime)
 	if err != nil {
 		slog.Error("update local path failed", "error", err)
