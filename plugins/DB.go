@@ -156,3 +156,44 @@ func (s *DB) GetService(serviceID interfaces.ServiceID) (interfaces.IService, er
 	}
 	return nil, fmt.Errorf("service not found")
 }
+func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error) {
+	rows, err := s.db.Query(`WITH tag_list AS (
+				SELECT unnest(tags) AS tag
+				FROM images
+				WHERE source_id = $1
+			), filtered_tags AS (
+				SELECT tag
+				FROM tag_list
+				WHERE tag NOT LIKE 'group_%'
+			), tag_count AS (
+				SELECT tag, COUNT(*) AS count
+				FROM filtered_tags
+				GROUP BY tag
+				ORDER BY count DESC, tag
+			)
+			SELECT tag, count, total_tags
+			FROM (
+				SELECT tag, count, COUNT(*) OVER() AS total_tags
+				FROM tag_count
+			) subquery
+			LIMIT $2 OFFSET $3;`, source, limit, offset)
+	if err != nil {
+		slog.Error("query failed", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+	tagList := &models.TagList{
+		TagList:    make([]models.TagInfo, 0),
+		TotalCount: 0,
+	}
+	for rows.Next() {
+		var tag models.TagInfo
+		err = rows.Scan(&tag.Tag, &tag.Count, &tagList.TotalCount)
+		if err != nil {
+			slog.Error("scan failed", "error", err)
+			return nil, err
+		}
+		tagList.TagList = append(tagList.TagList, tag)
+	}
+	return tagList, nil
+}

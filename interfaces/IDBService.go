@@ -10,4 +10,6 @@ type IDBService interface {
 	InsertMeta(meta models.ImageMeta) error
 	GetMetaWithoutLocalPath(source string, maxSize int) []models.ImageMeta
 	UpdateLocalPathForMeta(meta models.ImageMeta) error
+
+	ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error)
 }

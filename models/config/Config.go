@@ -11,6 +11,7 @@ type Config struct {
 	WorkDir            string             `json:"workDir" yaml:"workDir"`
 	DatabaseConfig     DatabaseConfig     `json:"database" yaml:"database"`
 	Plugins            []string           `json:"plugins" yaml:"plugins"`
+	APIConfig          APIConfig          `json:"api" yaml:"api"`
 }
 
 func (a *SpiderList) UnmmarshalJSON(data []byte) error {
