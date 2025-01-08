@@ -59,6 +59,7 @@ func (s *API) Load(app interfaces.IApplication) error {
 	}()
 	s.router.GET("/:sourceid/tags", s.listAllTags)
 	s.router.GET("/:sourceid/images", s.listImages)
+	s.router.Static("/image", s.app.GetAppConfig().ImageDir)
 	return nil
 }
 func (s *API) Unload() {
