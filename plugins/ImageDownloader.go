@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 	"ywwzwb/imagespider/interfaces"
+	"ywwzwb/imagespider/models"
 	"ywwzwb/imagespider/models/config"
 )
 
@@ -89,7 +90,6 @@ func (i *ImageDownloader) AddConfig(sourceID string, config *config.ImageDownloa
 func (i *ImageDownloader) downloadForSourceID(sourceID string, config *config.ImageDownloaderConfig) {
 	logger := slog.With("sourceID", sourceID)
 	logger.Info("start download")
-mainLoop:
 	for {
 		// 读取几条没有本地路径的资源
 		metas := i.dbService.GetMetaWithoutLocalPath(sourceID, fetchBatchSize)
@@ -97,8 +97,7 @@ mainLoop:
 			logger.Info("no more data, check later")
 			select {
 			case <-i.stopChain:
-				i.stopFinishChain <- true
-				break mainLoop
+				goto exit
 			case <-time.After(fetchInterval):
 				continue
 			}
@@ -113,87 +112,101 @@ mainLoop:
 			Transport: transport,
 		}
 		for _, meta := range metas {
-			var req *http.Request
-			var resp *http.Response = nil
-			var output *os.File = nil
-			var startDownloadPos int64 = 0
-			var stat os.FileInfo
-			mlogger := logger.With("metaID", meta.ID)
-			hash := meta.Hash()
-			tempDownloadFilePath := path.Join(i.downloadTempPath, hash+path.Ext(meta.ImageURL))
-			tempDownloadFilePathDownloading := tempDownloadFilePath + ".downloading"
-
-			_, err := os.Stat(tempDownloadFilePath)
-			if err == nil {
-				mlogger.Info("file exists, skip it")
-				goto convert
+			var exit bool = false
+			i.downloadImage(httpClient, sourceID, meta, config, &exit)
+			if exit {
+				goto exit
 			}
-			stat, err = os.Stat(tempDownloadFilePathDownloading)
-			if err == nil {
-				startDownloadPos = stat.Size()
-				mlogger.Info("try resume download from", "offset", startDownloadPos)
-			}
-			mlogger.Info("start download")
-			for idx := 0; idx < int(config.ErrorRetryMaxCount); idx++ {
-				req, err = http.NewRequest("GET", meta.ImageURL, nil)
-				if err != nil {
-					mlogger.Error("create request failed", "error", err)
-					break
-				}
-				for k, v := range config.Headers {
-					req.Header.Add(k, v)
-				}
-				if startDownloadPos > 0 {
-					req.Header.Add("Range", fmt.Sprintf("bytes=%d-", startDownloadPos))
-				}
-				resp, err = httpClient.Do(req)
-				if err != nil || (resp.StatusCode != 200 && resp.StatusCode != 206) {
-					startDownloadPos = 0
-					os.Remove(tempDownloadFilePathDownloading)
-					select {
-					case <-i.stopChain:
-						i.stopFinishChain <- true
-						break mainLoop
-					case <-time.After(time.Duration(config.ErrorRetryInterval) * time.Second):
-						continue
-					}
-				}
-				break
-			}
-			defer resp.Body.Close()
-			// 把resp.body 保存到 tempDownloadFilePath 中
-			output, err = os.OpenFile(tempDownloadFilePathDownloading, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-			if err != nil {
-				logger.Error("create temp file failed", "error", err)
-				continue
-			}
-
-			_, err = io.Copy(output, resp.Body)
-			output.Close()
-			if err != nil {
-				logger.Error("write temp file failed", "error", err)
-				continue
-			}
-			if err := os.Rename(tempDownloadFilePathDownloading, tempDownloadFilePath); err != nil {
-				logger.Error("rename temp file failed", "error", err)
-				continue
-			}
-			mlogger.Info("download success, convert")
-		convert:
-			i.imageConvertService.Convert(tempDownloadFilePath, hash, func(output string, err error) {
-				if err != nil {
-					mlogger.Error("convert failed", "error", err)
-					return
-				}
-				mlogger.Info("convert success, update local path")
-				meta.LocalPath = &output
-				if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
-					mlogger.Error("update local path failed", "error", err)
-					return
-				}
-				os.Remove(tempDownloadFilePath)
-			})
 		}
 	}
+exit:
+	i.stopFinishChain <- true
+}
+func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string, meta models.ImageMeta, config *config.ImageDownloaderConfig, exit *bool) {
+	var req *http.Request
+	var resp *http.Response = nil
+	var output *os.File = nil
+	var startDownloadPos int64 = 0
+	var stat os.FileInfo
+	logger := slog.With("sourceID", sourceID).With("metaID", meta.ID)
+	hash := meta.Hash()
+	tempDownloadFilePath := path.Join(i.downloadTempPath, hash+path.Ext(meta.ImageURL))
+	tempDownloadFilePathDownloading := tempDownloadFilePath + ".downloading"
+	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6], hash+i.imageConvertService.GetFilextension())
+	imageOutputAbsolutePath := path.Join(i.app.GetAppConfig().ImageDir, imageOutputPath)
+	_, err := os.Stat(imageOutputAbsolutePath)
+	if err == nil {
+		logger.Info("converted file exists, save it")
+		goto save
+	}
+	_, err = os.Stat(tempDownloadFilePath)
+	if err == nil {
+		logger.Info("file download path exists, convert it")
+		goto convert
+	}
+	stat, err = os.Stat(tempDownloadFilePathDownloading)
+	if err == nil {
+		startDownloadPos = stat.Size()
+		logger.Info("try resume download from", "offset", startDownloadPos)
+	}
+	logger.Info("start download")
+	for idx := 0; idx < int(config.ErrorRetryMaxCount); idx++ {
+		req, err = http.NewRequest("GET", meta.ImageURL, nil)
+		if err != nil {
+			logger.Error("create request failed", "error", err)
+			break
+		}
+		for k, v := range config.Headers {
+			req.Header.Add(k, v)
+		}
+		if startDownloadPos > 0 {
+			req.Header.Add("Range", fmt.Sprintf("bytes=%d-", startDownloadPos))
+		}
+		resp, err = httpClient.Do(req)
+		if err != nil || (resp.StatusCode != 200 && resp.StatusCode != 206) {
+			startDownloadPos = 0
+			os.Remove(tempDownloadFilePathDownloading)
+			select {
+			case <-i.stopChain:
+				*exit = true
+				return
+			case <-time.After(time.Duration(config.ErrorRetryInterval) * time.Second):
+				continue
+			}
+		}
+		break
+	}
+	defer resp.Body.Close()
+	// 把resp.body 保存到 tempDownloadFilePath 中
+	output, err = os.OpenFile(tempDownloadFilePathDownloading, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		logger.Error("create temp file failed", "error", err)
+		return
+	}
 
+	_, err = io.Copy(output, resp.Body)
+	output.Close()
+	if err != nil {
+		logger.Error("write temp file failed", "error", err)
+		return
+	}
+	if err := os.Rename(tempDownloadFilePathDownloading, tempDownloadFilePath); err != nil {
+		logger.Error("rename temp file failed", "error", err)
+		return
+	}
+	logger.Info("download success, convert")
+convert:
+	err = i.imageConvertService.Convert(tempDownloadFilePath, imageOutputAbsolutePath)
+	if err != nil {
+		logger.Error("convert failed", "error", err)
+		return
+	}
+	logger.Info("convert success, update local path")
+save:
+	meta.LocalPath = &imageOutputPath
+	if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
+		logger.Error("update local path failed", "error", err)
+		return
+	}
+	os.Remove(tempDownloadFilePath)
 }

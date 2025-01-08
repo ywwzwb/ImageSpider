@@ -15,6 +15,7 @@ import (
 )
 
 const ImageConvertPluginID string = "ImageConvert"
+const HEICExtension string = ".heic"
 
 type ImageConvert struct {
 	app    interfaces.IApplication
@@ -56,26 +57,20 @@ func (i *ImageConvert) GetService(serviceID interfaces.ServiceID) (interfaces.IS
 	}
 	return nil, fmt.Errorf("service not found")
 }
-func (i *ImageConvert) Convert(input, hash string, finishCallback func(output string, err error)) {
-	imageRelativeDirPath := path.Join(hash[0:2], hash[2:4], hash[4:6])
-	imageFullDirPath := path.Join(i.app.GetAppConfig().ImageDir, imageRelativeDirPath)
-	if err := os.MkdirAll(imageFullDirPath, 0755); err != nil {
-		slog.Error("create image dir failed", "path", imageFullDirPath, "error", err)
-		finishCallback("", err)
-		return
+func (i *ImageConvert) Convert(input, output string) error {
+	outputDir := path.Base(output)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		slog.Error("create image output dir failed", "path", outputDir, "error", err)
+		return err
 	}
-	imageRelativePath := path.Join(imageRelativeDirPath, hash+".heic")
-	imageFullPath := path.Join(i.app.GetAppConfig().ImageDir, imageRelativePath)
-	if _, err := os.Stat(imageFullPath); err == nil {
-		finishCallback(imageRelativePath, nil)
-		return
+	if _, err := os.Stat(output); err == nil {
+		return nil
 	}
 	// Open the source file
 	file, err := os.Open(input)
 	if err != nil {
 		slog.Error("failed to open file", "path", input, "err", err)
-		finishCallback("", err)
-		return
+		return err
 	}
 	defer file.Close()
 	file.Seek(0, 0)
@@ -83,8 +78,7 @@ func (i *ImageConvert) Convert(input, hash string, finishCallback func(output st
 	image, _, err := image.Decode(file)
 	if err != nil {
 		slog.Error("failed to decode image", "path", input, "err", err)
-		finishCallback("", err)
-		return
+		return err
 	}
 
 	// Encode the image in HEIF format
@@ -97,15 +91,17 @@ func (i *ImageConvert) Convert(input, hash string, finishCallback func(output st
 	ctx, err := heif.EncodeFromImage(image, heif.CompressionHEVC, i.config.Quality, losslessMode, heif.LoggingLevelNone)
 	if err != nil {
 		slog.Error("failed to encode image", "path", input, "err", err)
-		finishCallback("", err)
-		return
+		return err
 	}
 
 	// Save the HEIF data to a file
-	if err := ctx.WriteToFile(imageFullPath); err != nil {
-		slog.Error("failed to write to file", "output", imageFullPath, "err", err)
-		finishCallback("", err)
-		return
+	if err := ctx.WriteToFile(output); err != nil {
+		slog.Error("failed to write to file", "output", output, "err", err)
+		return err
 	}
-	finishCallback(imageRelativePath, nil)
+	return nil
+}
+
+func (i *ImageConvert) GetFilextension() string {
+	return HEICExtension
 }
