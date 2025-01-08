@@ -58,7 +58,7 @@ func (i *ImageConvert) GetService(serviceID interfaces.ServiceID) (interfaces.IS
 	return nil, fmt.Errorf("service not found")
 }
 func (i *ImageConvert) Convert(input, output string) error {
-	outputDir := path.Base(output)
+	outputDir := path.Dir(output)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		slog.Error("create image output dir failed", "path", outputDir, "error", err)
 		return err
