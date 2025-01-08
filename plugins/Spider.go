@@ -220,6 +220,7 @@ func (s *Spider) fetchListFromPage(spiderConfig *config.SpiderConfig, starPage i
 		func(event common.Event, context common.Context) {
 		})
 	sm.Handle(spiderEvent{eventType: spiderEventTypeGetPage, page: starPage + 1}, c)
+	slog.Info("fetch list finish", "page", starPage, "state", sm.CurrnetState)
 	switch sm.CurrnetState {
 	case spiderStateEarlyStop:
 		return SpiderErrorStop
