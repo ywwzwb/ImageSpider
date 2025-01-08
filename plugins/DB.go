@@ -197,3 +197,57 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 	}
 	return tagList, nil
 }
+
+func (s *DB) ListImageOFTags(source string, tags []string, offset, limit int64) (*models.ImageList, error) {
+	var rows *sql.Rows
+	var err error
+	if len(tags) == 0 {
+		rows, err = s.db.Query(`WITH filtered_images AS (
+			SELECT id, tags, image_url, post_time, source_id, local_path
+			FROM images
+			WHERE source_id = $1
+		), total_count AS (
+			SELECT COUNT(*) AS total_items
+			FROM filtered_images
+		)
+		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, t.total_items
+		FROM filtered_images i
+		CROSS JOIN total_count t
+		ORDER BY i.post_time DESC
+		LIMIT $2 OFFSET $3;`, source, limit, offset)
+	} else {
+		rows, err = s.db.Query(`WITH filtered_images AS (
+			SELECT id, tags, image_url, post_time, source_id, local_path
+			FROM images
+			WHERE source_id = $1
+			AND tags @> $2
+		), total_count AS (
+			SELECT COUNT(*) AS total_items
+			FROM filtered_images
+		)
+		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, t.total_items
+		FROM filtered_images i
+		CROSS JOIN total_count t
+		ORDER BY i.post_time DESC
+		LIMIT $3 OFFSET $4;`, source, pq.Array(tags), limit, offset)
+	}
+	if err != nil {
+		slog.Error("query failed", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+	imageList := &models.ImageList{
+		ImageList:  make([]models.ImageMeta, 0),
+		TotalCount: 0,
+	}
+	for rows.Next() {
+		meta := models.ImageMeta{}
+		err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.PostTime, &meta.SourceID, &meta.LocalPath, &imageList.TotalCount)
+		if err != nil {
+			slog.Error("scan failed", "error", err)
+			return nil, err
+		}
+		imageList.ImageList = append(imageList.ImageList, meta)
+	}
+	return imageList, nil
+}

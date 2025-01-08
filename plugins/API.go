@@ -57,7 +57,8 @@ func (s *API) Load(app interfaces.IApplication) error {
 			slog.Error("failed to listen", "error", err)
 		}
 	}()
-	s.router.GET("/:sourceid/tag", s.listAllTags)
+	s.router.GET("/:sourceid/tags", s.listAllTags)
+	s.router.GET("/:sourceid/images", s.listImages)
 	return nil
 }
 func (s *API) Unload() {
@@ -83,6 +84,23 @@ func (s *API) listAllTags(c *gin.Context) {
 	}
 	if tagList, err := s.dbService.ListNotGroupTags(sourceid, offset, limit); err == nil {
 		c.JSON(http.StatusOK, tagList)
+	} else {
+		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+}
+func (s *API) listImages(c *gin.Context) {
+	sourceid := c.Param("sourceid")
+	var offset int64 = 0
+	var limit int64 = 50
+	if v, err := strconv.ParseInt(c.DefaultQuery("offset", "0"), 10, 32); err == nil {
+		offset = v
+	}
+	if v, err := strconv.ParseInt(c.DefaultQuery("limit", "50"), 10, 32); err == nil {
+		limit = v
+	}
+	tags := c.QueryArray("tag")
+	if imagList, err := s.dbService.ListImageOFTags(sourceid, tags, offset, limit); err == nil {
+		c.JSON(http.StatusOK, imagList)
 	} else {
 		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
