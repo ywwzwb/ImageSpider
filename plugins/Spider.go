@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -287,6 +289,9 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 		return
 	}
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if html, err := doc.Html(); err == nil {
+		os.WriteFile(path.Join(s.app.GetAppConfig().WorkDir, "page.html"), []byte(html), 0644)
+	}
 	if err != nil {
 		logger.Error("parse html failed", "error", err)
 		sm.Handle(spiderEvent{eventType: spiderEventTypeError, error: err}, context)
