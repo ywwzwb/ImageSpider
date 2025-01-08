@@ -32,6 +32,8 @@ type ImageDownloader struct {
 
 func newImageDownloader() *ImageDownloader {
 	downloader := ImageDownloader{}
+	downloader.stopChain = make(chan bool)
+	downloader.stopFinishChain = make(chan bool)
 	return &downloader
 }
 
@@ -112,6 +114,11 @@ func (i *ImageDownloader) downloadForSourceID(sourceID string, config *config.Im
 			Transport: transport,
 		}
 		for _, meta := range metas {
+			select {
+			case <-i.stopChain:
+				goto exit
+			default:
+			}
 			var exit bool = false
 			i.downloadImage(httpClient, sourceID, meta, config, &exit)
 			if exit {
@@ -183,8 +190,19 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 		logger.Error("create temp file failed", "error", err)
 		return
 	}
-
-	_, err = io.Copy(output, resp.Body)
+	for {
+		select {
+		case <-i.stopChain:
+			*exit = true
+			output.Close()
+			return
+		default:
+		}
+		size, err := io.CopyN(output, resp.Body, 4*1024)
+		if size == 0 || err != nil {
+			break
+		}
+	}
 	output.Close()
 	if err != nil {
 		logger.Error("write temp file failed", "error", err)
