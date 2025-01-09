@@ -30,7 +30,7 @@ func NewConfigFromPath(path string) *Config {
 	emptyConfig.LastFetchPageStack = make(map[string][]int64)
 	configReader, err := os.Open(path)
 	if err != nil {
-		slog.Info("empty config file", "path", path)
+		slog.Warn("empty config file", "path", path)
 		return emptyConfig
 	}
 	defer configReader.Close()
@@ -43,6 +43,7 @@ func NewConfigFromPath(path string) *Config {
 		slog.Error("unsupported config version", "version", emptyConfig.Version)
 		return emptyConfig
 	}
+	slog.Debug("current run config", "config", currentConfig)
 	currentConfig.path = path
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, syscall.SIGHUP)
@@ -55,6 +56,7 @@ func NewConfigFromPath(path string) *Config {
 	return currentConfig
 }
 func (c *Config) Save() error {
+	slog.Debug("save config", "path", c.path)
 	c.saveMtx.Lock()
 	defer c.saveMtx.Unlock()
 	dirpath := filepath.Dir(c.path)
@@ -67,66 +69,89 @@ func (c *Config) Save() error {
 		slog.Error("open config file failed", "path", c.path, "error", err)
 		return err
 	}
-
 	defer configWriter.Close()
-	return yaml.NewEncoder(configWriter).Encode(c)
+	err = yaml.NewEncoder(configWriter).Encode(c)
+	if err != nil {
+		slog.Error("save config file failed", "path", c.path, "error", err)
+		return err
+	}
+	slog.Debug("save config file finish", "path", c.path)
+	return nil
 }
 func (c *Config) ReplaceStackTop(id string, newVal int64) *int64 {
+	logger := slog.With("source id", id).With("new val", newVal)
+	logger.Debug("replace stack top")
 	var oldTop *int64 = nil
 	for {
 		c.lastFetchPageStackMtx.Lock()
 		defer c.lastFetchPageStackMtx.Unlock()
 		lastStack, ok := c.LastFetchPageStack[id]
 		if !ok || len(lastStack) == 0 {
+			logger.Debug("stack empty, insert")
 			c.LastFetchPageStack[id] = []int64{newVal}
 			oldTop = nil
 			break
 		}
 		oldTop = &lastStack[len(lastStack)-1]
 		lastStack[len(lastStack)-1] = newVal
+		logger.Debug("replace finish", "old top", oldTop)
 		break
 	}
 	c.Save()
 	return oldTop
 }
 func (c *Config) AppndStack(id string, newVal int64) {
+	logger := slog.With("source id", id).With("new val", newVal)
+	logger.Debug("append stack")
 	for {
 		c.lastFetchPageStackMtx.Lock()
 		defer c.lastFetchPageStackMtx.Unlock()
 		lastStack, ok := c.LastFetchPageStack[id]
 		if !ok || len(lastStack) == 0 {
 			c.LastFetchPageStack[id] = []int64{newVal}
+			logger.Debug("empty stack, insert to top")
 			break
 		}
 		if lastStack[len(lastStack)-1] == newVal {
+			logger.Debug("stack top is same, ignore")
 			return
 		}
 		lastStack = append(lastStack, newVal)
 		c.LastFetchPageStack[id] = lastStack
+		logger.Debug("insert finish")
 		break
 	}
 	c.Save()
 }
 func (c *Config) StackTop(id string) *int64 {
+	logger := slog.With("source id", id)
+	logger.Debug("get stack top")
 	c.lastFetchPageStackMtx.RLock()
 	defer c.lastFetchPageStackMtx.RUnlock()
 	lastStack, ok := c.LastFetchPageStack[id]
 	if !ok || len(lastStack) == 0 {
+		logger.Debug("stack empty")
 		return nil
 	}
-	return &lastStack[len(lastStack)-1]
+	top := &lastStack[len(lastStack)-1]
+	logger.Debug("get stack top finish", "top", top)
+	return top
 }
 func (c *Config) StackPop(id string) *int64 {
+	logger := slog.With("source id", id)
+	logger.Debug("pop stack")
 	var oldTop *int64 = nil
 	for {
 		c.lastFetchPageStackMtx.Lock()
 		defer c.lastFetchPageStackMtx.Unlock()
 		lastStack, ok := c.LastFetchPageStack[id]
 		if !ok || len(lastStack) == 0 {
+			logger.Debug("stack empty")
 			return nil
 		}
 		oldTop = &lastStack[len(lastStack)-1]
 		c.LastFetchPageStack[id] = lastStack[:len(lastStack)-1]
+		logger.Debug("pop finish", "old top", oldTop)
 		break
 	}
 	c.Save()
