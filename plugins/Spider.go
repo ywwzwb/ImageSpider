@@ -158,20 +158,21 @@ func (s *Spider) runSpider(spiderConfig *config.SpiderConfig) {
 		// 抓取所有页面
 		var page *int64
 		for page = s.app.GetRumtimeConfig().StackTop(spiderConfig.ID); page != nil; page = s.app.GetRumtimeConfig().StackTop(spiderConfig.ID) {
+			logger.Debug("page fetching", "start", page)
 			err := s.fetchListFromPage(spiderConfig, *page)
 			if err == SpiderErrorStop {
 				// 结束了
 				logger.Info("spider stoped")
 				goto finalize
+			} else if err == SpiderErrorSuccess {
+				logger.Debug("page finish", "start", page)
 			} else {
-				//todo: other error
+				logger.Debug("page error", "start", page)
 			}
 		}
 		logger.Info("all pages finished, wait for next refresh")
 		// 如果没有页面了, 添加一个第零页, 稍后从头开始刷
-		if page == nil {
-			s.app.GetRumtimeConfig().AppndStack(spiderConfig.ID, 0)
-		}
+		s.app.GetRumtimeConfig().AppndStack(spiderConfig.ID, 0)
 		select {
 		case <-s.stopChain:
 			logger.Info("stop spider")
@@ -196,8 +197,9 @@ func (s *Spider) fetchListFromPage(spiderConfig *config.SpiderConfig, starPage i
 			return true
 		},
 		func(event common.Event, context common.Context) {
-			sm.CurrnetState = spiderStateRunning
-			s.fetchListStateRun(event.(spiderEvent), context.(*spiderContext), sm, spiderConfig)
+			spiderEvent := event.(spiderEvent)
+			slog.Debug("fetch list state run", "page", spiderEvent.page)
+			s.fetchListStateRun(spiderEvent, context.(*spiderContext), sm, spiderConfig)
 		})
 	sm.AddTransaction(spiderStateRunning,
 		spiderStateError,
@@ -205,6 +207,8 @@ func (s *Spider) fetchListFromPage(spiderConfig *config.SpiderConfig, starPage i
 			return true
 		},
 		func(event common.Event, context common.Context) {
+			spiderEvent := event.(spiderEvent)
+			slog.Debug("fetch list state error", "error", spiderEvent.error)
 		})
 	sm.AddTransaction(spiderStateRunning,
 		spiderStateFinished,
@@ -212,6 +216,7 @@ func (s *Spider) fetchListFromPage(spiderConfig *config.SpiderConfig, starPage i
 			return true
 		},
 		func(event common.Event, context common.Context) {
+			slog.Debug("fetch list state finish")
 			s.app.GetRumtimeConfig().StackPop(spiderConfig.ID)
 		})
 	sm.AddTransaction(spiderStateRunning,
@@ -220,6 +225,7 @@ func (s *Spider) fetchListFromPage(spiderConfig *config.SpiderConfig, starPage i
 			return true
 		},
 		func(event common.Event, context common.Context) {
+			slog.Debug("fetch list state early stop")
 		})
 	sm.Handle(spiderEvent{eventType: spiderEventTypeGetPage, page: starPage + 1}, c)
 	slog.Info("fetch list finish", "page", starPage, "state", sm.CurrnetState)
@@ -235,6 +241,7 @@ func (s *Spider) fetchListFromPage(spiderConfig *config.SpiderConfig, starPage i
 func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm *common.StateMachine, spiderConfig *config.SpiderConfig) {
 	select {
 	case <-s.stopChain:
+		slog.Debug("fetch list state early stop")
 		sm.Handle(spiderEvent{eventType: spiderEventTypeEarlyStop}, context)
 		return
 	default:
@@ -266,6 +273,7 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 		}
 		resp, err = httpClient.Do(req)
 		if err != nil || resp.StatusCode != 200 {
+			logger.Error("request failed", "error", err, "response", resp)
 			select {
 			case <-s.stopChain:
 				logger.Info("stop spider")
@@ -328,6 +336,7 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 		_, ok := s.dbService.GetMeta(id, spiderConfig.ID)
 		if ok {
 			// 已经刷到过的旧数据
+			logger.Debug("already fetched", "id", id)
 			if context.hasNewData {
 				// 之前已经有新数据了, 已经到新数据的结尾了, 停止
 				// 进入完成状态
@@ -347,6 +356,7 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 		}
 		// 新数据
 		// 获取元数据
+		logger.Debug("new data", "id", id)
 		if err := s.fetchMeta(httpClient, id, context, sm, spiderConfig); err != nil {
 			if serr, ok := err.(spiderError); ok && serr == SpiderErrorStop {
 				sm.Handle(spiderEvent{eventType: spiderEventTypeEarlyStop}, context)
@@ -357,8 +367,10 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 			return
 		}
 	}
+	slog.Debug("page finished, goto next page", "page", page)
 	s.app.GetRumtimeConfig().ReplaceStackTop(spiderConfig.ID, page)
 	if lastPage {
+		slog.Info("is last page finish now")
 		sm.Handle(spiderEvent{eventType: spiderEventTypeFinish}, context)
 		return
 	} else {
@@ -368,6 +380,7 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 func (s *Spider) fetchMeta(httpClient *http.Client, id string, context *spiderContext, sm *common.StateMachine, spiderConfig *config.SpiderConfig) error {
 	select {
 	case <-s.stopChain:
+		slog.Debug("fetch list state early stop")
 		return SpiderErrorStop
 	default:
 	}
@@ -389,6 +402,7 @@ func (s *Spider) fetchMeta(httpClient *http.Client, id string, context *spiderCo
 		}
 		resp, err = httpClient.Do(req)
 		if err != nil || resp.StatusCode != 200 {
+			logger.Error("request failed", "error", err, "response", resp)
 			select {
 			case <-s.stopChain:
 				logger.Info("stop spider")
@@ -445,6 +459,7 @@ func (s *Spider) fetchMeta(httpClient *http.Client, id string, context *spiderCo
 	meta.SourceID = spiderConfig.ID
 	meta.ID = id
 	context.hasNewData = true
+	logger.Debug("save new meta", "meta", meta)
 	s.dbService.InsertMeta(meta)
 	return nil
 }
