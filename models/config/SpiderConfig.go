@@ -8,11 +8,12 @@ type MetaDownloaderConfig struct {
 	ConnectTimeout                 int  `json:"connectTimeout" yaml:"connectTimeout"`                                 // in seconds
 }
 type ListParser struct {
-	URLTemplate string            `json:"urlTemplate" yaml:"urlTemplate"`
-	Headers     map[string]string `json:"headers" yaml:"headers"`
-	IDList      HTMLParserConfig  `json:"id" yaml:"id"`
-	PageNum     HTMLParserConfig  `json:"pageNum" yaml:"pageNum"`
-	NextPage    HTMLParserConfig  `json:"nextPage" yaml:"nextPage"`
+	URLTemplate     string            `json:"urlTemplate" yaml:"urlTemplate"`
+	Headers         map[string]string `json:"headers" yaml:"headers"`
+	IDList          HTMLParserConfig  `json:"id" yaml:"id"`
+	PageNum         HTMLParserConfig  `json:"pageNum" yaml:"pageNum"`
+	NextPage        HTMLParserConfig  `json:"nextPage" yaml:"nextPage"`
+	SameIDtolerance int               `json:"sameIDtolerance" yaml:"sameIDtolerance"`
 }
 type MetaParser struct {
 	URLTemplate string             `json:"urlTemplate" yaml:"urlTemplate"`

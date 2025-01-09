@@ -67,7 +67,8 @@ func (e spiderEvent) Equals(other common.Event) bool {
 }
 
 type spiderContext struct {
-	hasNewData bool
+	hasNewData   bool
+	oldDataCount int
 }
 
 func (e spiderError) Error() string {
@@ -346,11 +347,18 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 			// 已经刷到过的旧数据
 			logger.Debug("already fetched", "id", id)
 			if context.hasNewData {
-				// 之前已经有新数据了, 已经到新数据的结尾了, 停止
-				// 进入完成状态
-				slog.Info("this task finish")
-				sm.Handle(spiderEvent{eventType: spiderEventTypeFinish}, context)
-				return
+				// 之前已经有新数据了, 已经到新数据的结尾了
+				if context.oldDataCount >= spiderConfig.ListParser.SameIDtolerance {
+					// 停止
+					// 进入完成状态
+					slog.Info("this task finish")
+					sm.Handle(spiderEvent{eventType: spiderEventTypeFinish}, context)
+					return
+				} else {
+					slog.Debug("found old data, try to continue")
+					context.oldDataCount++
+					continue
+				}
 			}
 			// 之前没有新数据?
 			if page == 1 {
@@ -466,6 +474,7 @@ func (s *Spider) fetchMeta(httpClient *http.Client, id string, context *spiderCo
 	meta.PostTime = postTime
 	meta.SourceID = spiderConfig.ID
 	meta.ID = id
+	context.oldDataCount = 0
 	context.hasNewData = true
 	logger.Debug("save new meta", "meta", meta)
 	s.dbService.InsertMeta(meta)
