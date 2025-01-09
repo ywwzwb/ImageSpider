@@ -5,6 +5,7 @@ import (
 	"image"
 	_ "image/jpeg"
 	"image/png"
+	_ "image/png"
 	"log/slog"
 	"os"
 	"path"
@@ -57,19 +58,20 @@ func (i *ImageConvert) GetService(serviceID interfaces.ServiceID) (interfaces.IS
 	return nil, fmt.Errorf("service not found")
 }
 func (i *ImageConvert) ConvertHEIC(input, output string) error {
+	logger := slog.With("input", input, "output", output)
 	outputDir := path.Dir(output)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		slog.Error("create image output dir failed", "path", outputDir, "error", err)
+		logger.Error("create image output dir failed", "path", outputDir, "error", err)
 		return err
 	}
 	if _, err := os.Stat(output); err == nil {
-		slog.Info("image already exists", "path", output)
+		logger.Info("image already exists", "path", output)
 		return nil
 	}
 	// Open the source file
 	file, err := os.Open(input)
 	if err != nil {
-		slog.Error("failed to open file", "path", input, "err", err)
+		logger.Error("failed to open file", "path", input, "err", err)
 		return err
 	}
 	defer file.Close()
@@ -77,7 +79,7 @@ func (i *ImageConvert) ConvertHEIC(input, output string) error {
 	// Decode the image and get its format
 	image, _, err := image.Decode(file)
 	if err != nil {
-		slog.Error("failed to decode image", "path", input, "err", err)
+		logger.Error("failed to decode image", "path", input, "err", err)
 		return err
 	}
 
@@ -90,31 +92,32 @@ func (i *ImageConvert) ConvertHEIC(input, output string) error {
 	}
 	ctx, err := heif.EncodeFromImage(image, heif.CompressionHEVC, i.config.Quality, losslessMode, heif.LoggingLevelNone)
 	if err != nil {
-		slog.Error("failed to encode image", "path", input, "err", err)
+		logger.Error("failed to encode image", "path", input, "err", err)
 		return err
 	}
 
 	// Save the HEIF data to a file
 	if err := ctx.WriteToFile(output); err != nil {
-		slog.Error("failed to write to file", "output", output, "err", err)
+		logger.Error("failed to write to file", "output", output, "err", err)
 		return err
 	}
 	return nil
 }
 func (i *ImageConvert) ConvertPNG(input, output string) error {
+	logger := slog.With("input", input, "output", output)
 	outputDir := path.Dir(output)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		slog.Error("create image output dir failed", "path", outputDir, "error", err)
+		logger.Error("create image output dir failed", "path", outputDir, "error", err)
 		return err
 	}
 	if _, err := os.Stat(output); err == nil {
-		slog.Info("image already exists", "path", output)
+		logger.Info("image already exists", "path", output)
 		return nil
 	}
 	// Open the source file
 	file, err := os.Open(input)
 	if err != nil {
-		slog.Error("failed to open file", "path", input, "err", err)
+		logger.Error("failed to open file", "path", input, "err", err)
 		return err
 	}
 	defer file.Close()
@@ -122,12 +125,12 @@ func (i *ImageConvert) ConvertPNG(input, output string) error {
 	// Decode the image and get its format
 	image, _, err := image.Decode(file)
 	if err != nil {
-		slog.Error("failed to decode image", "path", input, "err", err)
+		logger.Error("failed to decode image", "path", input, "err", err)
 		return err
 	}
 	outputFile, err := os.Create(output)
 	if err == nil {
-		slog.Error("failed to create file", "output", output, "err", err)
+		logger.Error("failed to create file", "output", output, "err", err)
 		return err
 	}
 	defer outputFile.Close()
