@@ -272,7 +272,7 @@ func (i *ImageDownloader) checkData(sourceID string, config *config.ImageDownloa
 			for _, meta := range metas.ImageList {
 				path := path.Join(i.app.GetAppConfig().ImageDir, *meta.LocalPath)
 				if _, err := os.Stat(path); err != nil {
-					slog.Error("image not found", "path", path)
+					slog.Error("image not found", "path", path, "error", err)
 					i.dbService.UpdateLocalPathForMeta(models.ImageMeta{
 						ID:        meta.ID,
 						LocalPath: nil,
