@@ -153,8 +153,7 @@ func (s *Spider) GetService(serviceID interfaces.ServiceID) (interfaces.IService
 func (s *Spider) runSpider(spiderConfig *config.SpiderConfig) {
 	logger := slog.With("spider", spiderConfig.ID)
 	logger.Info("start spider")
-	// lastFetchStack := s.app.GetRumtimeConfig().LastFetchPageStack[spiderConfig.ID]
-	// lastFetchStack = append(lastFetchStack, 0)
+	s.dataCheckService.StartChecking(spiderConfig.ID)
 	// 启动时添加一个 第 0 页到栈顶, 以便从头开始刷
 
 	s.app.GetRumtimeConfig().AppndStack(spiderConfig.ID, 0)
