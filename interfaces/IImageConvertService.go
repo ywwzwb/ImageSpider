@@ -3,6 +3,6 @@ package interfaces
 const ImageConvertServiceID ServiceID = "ImageConvert"
 
 type IImageConvertService interface {
-	GetFilextension() string
-	Convert(input, output string) error
+	ConvertHEIC(input, output string) error
+	ConvertPNG(input, output string) error
 }

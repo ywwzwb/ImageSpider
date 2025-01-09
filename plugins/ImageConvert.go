@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/jpeg"
-	_ "image/png"
+	"image/png"
 	"log/slog"
 	"os"
 	"path"
@@ -15,7 +15,6 @@ import (
 )
 
 const ImageConvertPluginID string = "ImageConvert"
-const HEICExtension string = ".heic"
 
 type ImageConvert struct {
 	app    interfaces.IApplication
@@ -57,13 +56,14 @@ func (i *ImageConvert) GetService(serviceID interfaces.ServiceID) (interfaces.IS
 	}
 	return nil, fmt.Errorf("service not found")
 }
-func (i *ImageConvert) Convert(input, output string) error {
+func (i *ImageConvert) ConvertHEIC(input, output string) error {
 	outputDir := path.Dir(output)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		slog.Error("create image output dir failed", "path", outputDir, "error", err)
 		return err
 	}
 	if _, err := os.Stat(output); err == nil {
+		slog.Info("image already exists", "path", output)
 		return nil
 	}
 	// Open the source file
@@ -101,7 +101,35 @@ func (i *ImageConvert) Convert(input, output string) error {
 	}
 	return nil
 }
-
-func (i *ImageConvert) GetFilextension() string {
-	return HEICExtension
+func (i *ImageConvert) ConvertPNG(input, output string) error {
+	outputDir := path.Dir(output)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		slog.Error("create image output dir failed", "path", outputDir, "error", err)
+		return err
+	}
+	if _, err := os.Stat(output); err == nil {
+		slog.Info("image already exists", "path", output)
+		return nil
+	}
+	// Open the source file
+	file, err := os.Open(input)
+	if err != nil {
+		slog.Error("failed to open file", "path", input, "err", err)
+		return err
+	}
+	defer file.Close()
+	file.Seek(0, 0)
+	// Decode the image and get its format
+	image, _, err := image.Decode(file)
+	if err != nil {
+		slog.Error("failed to decode image", "path", input, "err", err)
+		return err
+	}
+	outputFile, err := os.Create(output)
+	if err == nil {
+		slog.Error("failed to create file", "output", output, "err", err)
+		return err
+	}
+	defer outputFile.Close()
+	return png.Encode(outputFile, image)
 }

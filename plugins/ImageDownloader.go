@@ -139,9 +139,9 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	hash := meta.Hash()
 	tempDownloadFilePath := path.Join(i.downloadTempPath, hash+path.Ext(meta.ImageURL))
 	tempDownloadFilePathDownloading := tempDownloadFilePath + ".downloading"
-	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6], hash+i.imageConvertService.GetFilextension())
+	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6])
 	imageOutputAbsolutePath := path.Join(i.app.GetAppConfig().ImageDir, imageOutputPath)
-	_, err := os.Stat(imageOutputAbsolutePath)
+	_, err := os.Stat(imageOutputAbsolutePath + ".heic")
 	if err == nil {
 		logger.Info("converted file exists, save it")
 		goto save
@@ -214,13 +214,28 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	}
 	logger.Info("download success, convert")
 convert:
-	err = i.imageConvertService.Convert(tempDownloadFilePath, imageOutputAbsolutePath)
+	err = i.imageConvertService.ConvertHEIC(tempDownloadFilePath, imageOutputAbsolutePath+".heic")
+	if err == nil {
+		logger.Info("convert success, update local path")
+		goto save
+	}
+	logger.Error("convert failed, try to convert png first", "error", err)
+	err = i.imageConvertService.ConvertPNG(tempDownloadFilePath, imageOutputAbsolutePath+".png")
+	defer os.RemoveAll(imageOutputAbsolutePath + ".png")
 	if err != nil {
-		logger.Error("convert failed", "error", err)
+		logger.Error("convert png failed", "error", err)
 		return
 	}
+	slog.Info("convert png succed, convert to heic now")
+	err = i.imageConvertService.ConvertHEIC(imageOutputAbsolutePath+".png", imageOutputAbsolutePath+".heic")
+	if err != nil {
+		logger.Error("convert heic failed", "error", err)
+		return
+	}
+
 	logger.Info("convert success, update local path")
 save:
+	imageOutputPath = imageOutputPath + ".heic"
 	meta.LocalPath = &imageOutputPath
 	if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
 		logger.Error("update local path failed", "error", err)
