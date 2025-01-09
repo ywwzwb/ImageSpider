@@ -241,6 +241,11 @@ convert:
 	}
 	logger.Info("convert success, update local path")
 save:
+	_, err = os.Stat(imageOutputAbsolutePath + ".heic")
+	if err != nil {
+		logger.Info("image not exists, skip")
+		return
+	}
 	imageOutputPath = imageOutputPath + ".heic"
 	meta.LocalPath = &imageOutputPath
 	if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
