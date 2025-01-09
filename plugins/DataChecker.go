@@ -81,6 +81,7 @@ func (d *DataChecker) checkData(sourceID string) {
 		default:
 		}
 		offset := 0
+		hasBadMeta := false
 		for {
 			metas, err := d.dbService.ListDownloadedImageOfTags(sourceID, nil, int64(offset), int64(d.app.GetAppConfig().DataCheckerConfig.BatchSize))
 			if err != nil {
@@ -90,6 +91,7 @@ func (d *DataChecker) checkData(sourceID string) {
 			for _, meta := range metas.ImageList {
 				path := path.Join(d.app.GetAppConfig().ImageDir, *meta.LocalPath)
 				if _, err := os.Stat(path); err != nil {
+					hasBadMeta = true
 					slog.Error("image not found", "path", path, "error", err)
 					d.dbService.UpdateLocalPathForMeta(models.ImageMeta{
 						ID:        meta.ID,
@@ -98,12 +100,13 @@ func (d *DataChecker) checkData(sourceID string) {
 				}
 			}
 			if len(metas.ImageList) < d.app.GetAppConfig().DataCheckerConfig.BatchSize {
-				if offset == 0 {
+				if !hasBadMeta {
 					slog.Info("check finish")
 					break
 				} else {
 					slog.Info("check finish, but not all data checked, restart")
 					offset = 0
+					hasBadMeta = false
 				}
 			} else {
 				offset += len(metas.ImageList)
