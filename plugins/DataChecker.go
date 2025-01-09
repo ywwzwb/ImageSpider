@@ -75,14 +75,14 @@ func (d *DataChecker) StartChecking(sourceID string) {
 
 func (d *DataChecker) checkData(sourceID string) {
 	for {
-		select {
-		case <-d.stopChain:
-			goto exit
-		default:
-		}
 		offset := 0
 		hasBadMeta := false
 		for {
+			select {
+			case <-d.stopChain:
+				goto exit
+			default:
+			}
 			metas, err := d.dbService.ListDownloadedImageOfTags(sourceID, nil, int64(offset), int64(d.app.GetAppConfig().DataCheckerConfig.BatchSize))
 			if err != nil {
 				slog.Error("list downloaded image failed", "error", err)
