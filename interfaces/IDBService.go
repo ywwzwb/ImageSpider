@@ -12,6 +12,6 @@ type IDBService interface {
 	UpdateLocalPathForMeta(meta models.ImageMeta) error
 
 	ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error)
-	ListImageOFTags(source string, tags []string, offset, limit int64) (*models.ImageList, error)
+	ListDownloadedImageOfTags(source string, tags []string, offset, limit int64) (*models.ImageList, error)
 	GetImageMeta(source string, id string) (*models.ImageMeta, error)
 }

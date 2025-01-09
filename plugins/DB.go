@@ -209,7 +209,7 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 	return tagList, nil
 }
 
-func (s *DB) ListImageOFTags(source string, tags []string, offset, limit int64) (*models.ImageList, error) {
+func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, limit int64) (*models.ImageList, error) {
 	var rows *sql.Rows
 	var err error
 	if len(tags) == 0 {
@@ -217,6 +217,8 @@ func (s *DB) ListImageOFTags(source string, tags []string, offset, limit int64) 
 			SELECT id, tags, image_url, post_time, source_id, local_path
 			FROM images
 			WHERE source_id = $1
+			AND local_path IS NOT NULL
+			AND local_path != ''
 		), total_count AS (
 			SELECT COUNT(*) AS total_items
 			FROM filtered_images
@@ -231,6 +233,8 @@ func (s *DB) ListImageOFTags(source string, tags []string, offset, limit int64) 
 			SELECT id, tags, image_url, post_time, source_id, local_path
 			FROM images
 			WHERE source_id = $1
+			AND local_path IS NOT NULL
+			AND local_path != ''
 			AND tags @> $2
 		), total_count AS (
 			SELECT COUNT(*) AS total_items

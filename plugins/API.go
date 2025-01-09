@@ -101,7 +101,7 @@ func (s *API) listImages(c *gin.Context) {
 		limit = v
 	}
 	tags := c.QueryArray("tag")
-	if imagList, err := s.dbService.ListImageOFTags(sourceid, tags, offset, limit); err == nil {
+	if imagList, err := s.dbService.ListDownloadedImageOfTags(sourceid, tags, offset, limit); err == nil {
 		c.JSON(http.StatusOK, imagList)
 	} else {
 		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
