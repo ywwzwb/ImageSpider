@@ -48,7 +48,7 @@ func (s *API) Load(app interfaces.IApplication) error {
 	s.router = gin.Default()
 	s.router.Use(sloggin.New(slog.Default()))
 	s.server = &http.Server{
-		Addr:    ":8080",
+		Addr:    ":" + strconv.FormatInt(int64(app.GetAppConfig().APIConfig.Port), 10),
 		Handler: s.router,
 	}
 	go func() {

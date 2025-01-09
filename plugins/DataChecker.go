@@ -9,7 +9,6 @@ import (
 	"time"
 	"ywwzwb/imagespider/interfaces"
 	"ywwzwb/imagespider/models"
-	"ywwzwb/imagespider/models/config"
 )
 
 const DataCheckerPluginID string = "DataChecker"
@@ -69,12 +68,12 @@ func (d *DataChecker) GetService(serviceID interfaces.ServiceID) (interfaces.ISe
 	return nil, fmt.Errorf("service not found")
 }
 
-func (d *DataChecker) StartChecking(sourceID string, config *config.ImageDownloaderConfig) {
+func (d *DataChecker) StartChecking(sourceID string) {
 	d.goroutinCount.Add(1)
-	go d.checkData(sourceID, config)
+	go d.checkData(sourceID)
 }
 
-func (d *DataChecker) checkData(sourceID string, config *config.ImageDownloaderConfig) {
+func (d *DataChecker) checkData(sourceID string) {
 	for {
 		select {
 		case <-d.stopChain:
