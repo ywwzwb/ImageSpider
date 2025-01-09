@@ -13,4 +13,5 @@ type IDBService interface {
 
 	ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error)
 	ListImageOFTags(source string, tags []string, offset, limit int64) (*models.ImageList, error)
+	GetImageMeta(source string, id string) (*models.ImageMeta, error)
 }

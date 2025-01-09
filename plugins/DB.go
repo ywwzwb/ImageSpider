@@ -20,7 +20,18 @@ type DB struct {
 	config config.DatabaseConfig
 	db     *sql.DB
 }
+type DBCommonError int
 
+const NotFound DBCommonError = 1
+
+func (e DBCommonError) Error() string {
+	switch e {
+	case NotFound:
+		return "not found"
+	default:
+		return "unknown error"
+	}
+}
 func newDB() *DB {
 	DB := DB{}
 	return &DB
@@ -250,4 +261,26 @@ func (s *DB) ListImageOFTags(source string, tags []string, offset, limit int64) 
 		imageList.ImageList = append(imageList.ImageList, meta)
 	}
 	return imageList, nil
+}
+func (s *DB) GetImageMeta(source string, id string) (*models.ImageMeta, error) {
+	rows, err := s.db.Query(`
+	SELECT id, tags, image_url, post_time, source_id, local_path
+	images
+	WHERE source_id = $1
+	AND id = $2;`, source, id)
+	if err != nil {
+		slog.Error("query failed", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var meta models.ImageMeta
+		err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.PostTime, &meta.SourceID, &meta.LocalPath)
+		if err != nil {
+			slog.Error("scan failed", "error", err)
+			return nil, err
+		}
+		return &meta, nil
+	}
+	return nil, NotFound
 }

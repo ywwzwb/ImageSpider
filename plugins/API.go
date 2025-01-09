@@ -59,6 +59,7 @@ func (s *API) Load(app interfaces.IApplication) error {
 	}()
 	s.router.GET("/:sourceid/tags", s.listAllTags)
 	s.router.GET("/:sourceid/images", s.listImages)
+	s.router.GET("/:sourceid/image/:id", s.getImage)
 	s.router.Static("/image", s.app.GetAppConfig().ImageDir)
 	return nil
 }
@@ -102,6 +103,17 @@ func (s *API) listImages(c *gin.Context) {
 	tags := c.QueryArray("tag")
 	if imagList, err := s.dbService.ListImageOFTags(sourceid, tags, offset, limit); err == nil {
 		c.JSON(http.StatusOK, imagList)
+	} else {
+		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+	}
+}
+func (s *API) getImage(c *gin.Context) {
+	sourceid := c.Param("sourceid")
+	metaID := c.Param("id")
+	if imagList, err := s.dbService.GetImageMeta(sourceid, metaID); err == nil {
+		c.JSON(http.StatusOK, imagList)
+	} else if _, ok := err.(DBCommonError); ok {
+		c.JSON(http.StatusNotFound, map[string]any{"error": err.Error()})
 	} else {
 		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
