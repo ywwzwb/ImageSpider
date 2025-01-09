@@ -92,7 +92,7 @@ func (d *DataChecker) checkData(sourceID string) {
 				path := path.Join(d.app.GetAppConfig().ImageDir, *meta.LocalPath)
 				if _, err := os.Stat(path); err != nil {
 					hasBadMeta = true
-					slog.Error("image not found", "path", path, "error", err)
+					slog.Error("image not found", "id", meta.ID, "path", path, "error", err)
 					d.dbService.UpdateLocalPathForMeta(models.ImageMeta{
 						ID:        meta.ID,
 						LocalPath: nil,
