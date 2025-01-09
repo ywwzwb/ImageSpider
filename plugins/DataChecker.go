@@ -99,6 +99,10 @@ func (d *DataChecker) checkData(sourceID string) {
 					})
 				}
 			}
+			if hasBadMeta {
+				hasBadMeta = false
+				continue
+			}
 			if len(metas.ImageList) < d.app.GetAppConfig().DataCheckerConfig.BatchSize {
 				if !hasBadMeta {
 					slog.Info("check finish")
