@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 	"ywwzwb/imagespider/interfaces"
-	"ywwzwb/imagespider/models"
 )
 
 const DataCheckerPluginID string = "DataChecker"
@@ -93,10 +92,8 @@ func (d *DataChecker) checkData(sourceID string) {
 				if _, err := os.Stat(path); err != nil {
 					hasBadMeta = true
 					slog.Error("image not found", "id", meta.ID, "path", path, "error", err)
-					d.dbService.UpdateLocalPathForMeta(models.ImageMeta{
-						ID:        meta.ID,
-						LocalPath: nil,
-					})
+					meta.LocalPath = nil
+					d.dbService.UpdateLocalPathForMeta(meta)
 				}
 			}
 			if hasBadMeta {
