@@ -2,7 +2,7 @@ package interfaces
 
 import "ywwzwb/imagespider/models"
 
-const IDBServiceID ServiceID = "IDBService"
+const DBServiceID ServiceID = "IDBService"
 
 type IDBService interface {
 	InitSource(id string) error

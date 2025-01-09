@@ -58,7 +58,7 @@ func (i *ImageDownloader) Load(app interfaces.IApplication) error {
 		return err
 	}
 	// 获取数据库服务
-	dbService, err := app.GetService(i.ID(), DBPluginID, interfaces.IDBServiceID)
+	dbService, err := app.GetService(i.ID(), DBPluginID, interfaces.DBServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err
@@ -86,9 +86,8 @@ func (i *ImageDownloader) GetService(serviceID interfaces.ServiceID) (interfaces
 	return nil, fmt.Errorf("service not found")
 }
 func (i *ImageDownloader) AddConfig(sourceID string, config *config.ImageDownloaderConfig) {
-	i.goroutinCount.Add(2)
+	i.goroutinCount.Add(1)
 	go i.downloadForSourceID(sourceID, config)
-	go i.checkData(sourceID, config)
 }
 func (i *ImageDownloader) downloadForSourceID(sourceID string, config *config.ImageDownloaderConfig) {
 	logger := slog.With("sourceID", sourceID)
@@ -253,46 +252,4 @@ save:
 		return
 	}
 	os.Remove(tempDownloadFilePath)
-}
-func (i *ImageDownloader) checkData(sourceID string, config *config.ImageDownloaderConfig) {
-	for {
-		select {
-		case <-i.stopChain:
-			goto exit
-		default:
-		}
-		const offset = 0
-		const batchSize = 100
-		for {
-			metas, err := i.dbService.ListDownloadedImageOfTags(sourceID, nil, offset, batchSize)
-			if err != nil {
-				slog.Error("list downloaded image failed", "error", err)
-				break
-			}
-			for _, meta := range metas.ImageList {
-				path := path.Join(i.app.GetAppConfig().ImageDir, *meta.LocalPath)
-				if _, err := os.Stat(path); err != nil {
-					slog.Error("image not found", "path", path, "error", err)
-					i.dbService.UpdateLocalPathForMeta(models.ImageMeta{
-						ID:        meta.ID,
-						LocalPath: nil,
-					})
-				}
-			}
-			select {
-			case <-i.stopChain:
-				goto exit
-			case <-time.After(1 * time.Second):
-				continue
-			}
-		}
-		select {
-		case <-i.stopChain:
-			goto exit
-		case <-time.After(5 * 60 * 60 * time.Second):
-			continue
-		}
-	}
-exit:
-	i.stopFinishChain <- true
 }

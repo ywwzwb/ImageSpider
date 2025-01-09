@@ -12,6 +12,7 @@ type Config struct {
 	DatabaseConfig     DatabaseConfig     `json:"database" yaml:"database"`
 	Plugins            []string           `json:"plugins" yaml:"plugins"`
 	APIConfig          APIConfig          `json:"api" yaml:"api"`
+	DataCheckerConfig  DataCheckerConfig  `json:"dataChecker" yaml:"dataChecker"`
 }
 
 func (a *SpiderList) UnmmarshalJSON(data []byte) error {

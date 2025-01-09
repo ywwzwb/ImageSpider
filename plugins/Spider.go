@@ -82,11 +82,12 @@ func (e spiderError) Error() string {
 }
 
 type Spider struct {
-	app             interfaces.IApplication
-	config          config.SpiderList
-	stopChain       chan bool
-	stopFinishChain chan bool
-	dbService       interfaces.IDBService
+	app              interfaces.IApplication
+	config           config.SpiderList
+	stopChain        chan bool
+	stopFinishChain  chan bool
+	dbService        interfaces.IDBService
+	dataCheckService interfaces.IDataCheckerService
 }
 
 func newSpider() *Spider {
@@ -113,7 +114,7 @@ func (s *Spider) Load(app interfaces.IApplication) error {
 	if len(s.config) == 0 {
 		return fmt.Errorf("no spiders")
 	}
-	dbService, err := app.GetService(s.ID(), DBPluginID, interfaces.IDBServiceID)
+	dbService, err := app.GetService(s.ID(), DBPluginID, interfaces.DBServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err
@@ -126,6 +127,14 @@ func (s *Spider) Load(app interfaces.IApplication) error {
 		return err
 	}
 	imageDownloaderService := rawImageDownloaderService.(interfaces.IImageDownloaderService)
+
+	dataCheckService, err := app.GetService(s.ID(), DataCheckerPluginID, interfaces.DataCheckerServiceID)
+	if err != nil {
+		slog.Error("get db service failed", "error", err)
+		return err
+	}
+	s.dataCheckService = dataCheckService.(interfaces.IDataCheckerService)
+
 	for _, spiderConfig := range s.config {
 		imageDownloaderService.AddConfig(spiderConfig.ID, &spiderConfig.ImageDownloaderConfig)
 		go s.runSpider(spiderConfig)

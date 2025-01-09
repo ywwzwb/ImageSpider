@@ -162,7 +162,7 @@ func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
 }
 func (s *DB) GetService(serviceID interfaces.ServiceID) (interfaces.IService, error) {
 	switch serviceID {
-	case interfaces.IDBServiceID:
+	case interfaces.DBServiceID:
 		return s, nil
 	}
 	return nil, fmt.Errorf("service not found")

@@ -39,7 +39,7 @@ func (s *API) ID() string {
 func (s *API) Load(app interfaces.IApplication) error {
 	s.app = app
 
-	dbService, err := app.GetService(s.ID(), DBPluginID, interfaces.IDBServiceID)
+	dbService, err := app.GetService(s.ID(), DBPluginID, interfaces.DBServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err
