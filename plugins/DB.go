@@ -126,13 +126,13 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 	}
 	return nil
 }
-func (s *DB) GetMetaWithoutLocalPath(source string, maxSize int) []models.ImageMeta {
+func (s *DB) GetMetaLocalPathNULL(source string, maxSize int) []models.ImageMeta {
 	// 读取没有本地路径的图片, 最多返回maxSize条数据, 使用post_time 倒序排列
 	rows, err := s.db.Query(
 		`SELECT id, tags, image_url, post_time, source_id 
 			FROM images 
-			WHERE (local_path IS NULL OR local_path = '')
-				AND source_id = $1 
+			WHERE source_id = $1 
+				AND local_path IS NULL
 			ORDER BY post_time 
 			DESC LIMIT $2`, source, maxSize)
 	if err != nil {

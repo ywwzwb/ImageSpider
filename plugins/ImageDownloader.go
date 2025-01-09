@@ -28,6 +28,7 @@ type ImageDownloader struct {
 	downloadTempPath    string
 	dbService           interfaces.IDBService
 	imageConvertService interfaces.IImageConvertService
+	goroutinCount       atomic.Int32
 }
 
 func newImageDownloader() *ImageDownloader {
@@ -72,8 +73,7 @@ func (i *ImageDownloader) Load(app interfaces.IApplication) error {
 	return nil
 }
 func (i *ImageDownloader) Unload() {
-	var idx int32
-	for idx = 0; idx < i.configCount.Load(); idx++ {
+	for ; i.goroutinCount.Load() > 0; i.goroutinCount.Add(-1) {
 		i.stopChain <- true
 		<-i.stopFinishChain
 	}
@@ -86,15 +86,16 @@ func (i *ImageDownloader) GetService(serviceID interfaces.ServiceID) (interfaces
 	return nil, fmt.Errorf("service not found")
 }
 func (i *ImageDownloader) AddConfig(sourceID string, config *config.ImageDownloaderConfig) {
-	i.configCount.Add(1)
+	i.goroutinCount.Add(2)
 	go i.downloadForSourceID(sourceID, config)
+	go i.checkData(sourceID, config)
 }
 func (i *ImageDownloader) downloadForSourceID(sourceID string, config *config.ImageDownloaderConfig) {
 	logger := slog.With("sourceID", sourceID)
 	logger.Info("start download")
 	for {
 		// 读取几条没有本地路径的资源
-		metas := i.dbService.GetMetaWithoutLocalPath(sourceID, fetchBatchSize)
+		metas := i.dbService.GetMetaLocalPathNULL(sourceID, fetchBatchSize)
 		if len(metas) == 0 {
 			logger.Info("no more data, check later")
 			select {
@@ -229,10 +230,15 @@ convert:
 	slog.Info("convert png succed, convert to heic now")
 	err = i.imageConvertService.ConvertHEIC(imageOutputAbsolutePath+".png", imageOutputAbsolutePath+".heic")
 	if err != nil {
-		logger.Error("convert heic failed", "error", err)
+		logger.Error("convert heic failed, save empty path and skip for now", "error", err)
+		empty := ""
+		meta.LocalPath = &empty
+		if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
+			logger.Error("update local path failed", "error", err)
+			return
+		}
 		return
 	}
-
 	logger.Info("convert success, update local path")
 save:
 	imageOutputPath = imageOutputPath + ".heic"
@@ -242,4 +248,46 @@ save:
 		return
 	}
 	os.Remove(tempDownloadFilePath)
+}
+func (i *ImageDownloader) checkData(sourceID string, config *config.ImageDownloaderConfig) {
+	for {
+		select {
+		case <-i.stopChain:
+			goto exit
+		default:
+		}
+		const offset = 0
+		const batchSize = 100
+		for {
+			metas, err := i.dbService.ListDownloadedImageOfTags(sourceID, nil, offset, batchSize)
+			if err != nil {
+				slog.Error("list downloaded image failed", "error", err)
+				break
+			}
+			for _, meta := range metas.ImageList {
+				path := path.Join(i.app.GetAppConfig().ImageDir, *meta.LocalPath)
+				if _, err := os.Stat(path); err != nil {
+					slog.Error("image not found", "path", path)
+					i.dbService.UpdateLocalPathForMeta(models.ImageMeta{
+						ID:        meta.ID,
+						LocalPath: nil,
+					})
+				}
+			}
+			select {
+			case <-i.stopChain:
+				goto exit
+			case <-time.After(1 * time.Second):
+				continue
+			}
+		}
+		select {
+		case <-i.stopChain:
+			goto exit
+		case <-time.After(5 * 60 * 60 * time.Second):
+			continue
+		}
+	}
+exit:
+	i.stopFinishChain <- true
 }
