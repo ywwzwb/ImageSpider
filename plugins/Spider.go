@@ -351,11 +351,11 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 				if context.oldDataCount >= spiderConfig.ListParser.SameIDtolerance {
 					// 停止
 					// 进入完成状态
-					slog.Info("this task finish")
+					logger.Info("this task finish")
 					sm.Handle(spiderEvent{eventType: spiderEventTypeFinish}, context)
 					return
 				} else {
-					slog.Debug("found old data, try to continue")
+					logger.Debug("found old data, try to continue")
 					context.oldDataCount++
 					continue
 				}
@@ -363,7 +363,7 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 			// 之前没有新数据?
 			if page == 1 {
 				// 如果是第一页, 那就直接完成了(最新的一页没有任何新数据)
-				slog.Info("this task finish cause first page has no new data", "id idx", ididx)
+				logger.Info("this task finish cause first page has no new data", "id idx", ididx)
 				sm.Handle(spiderEvent{eventType: spiderEventTypeFinish}, context)
 				return
 			}
@@ -386,7 +386,7 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 	slog.Debug("page finished, goto next page", "page", page)
 	s.app.GetRumtimeConfig().ReplaceStackTop(spiderConfig.ID, page)
 	if lastPage {
-		slog.Info("is last page finish now")
+		logger.Info("is last page finish now")
 		sm.Handle(spiderEvent{eventType: spiderEventTypeFinish}, context)
 		return
 	} else {
