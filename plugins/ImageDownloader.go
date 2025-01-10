@@ -223,7 +223,8 @@ convert:
 	err = i.imageConvertService.ConvertPNG(tempDownloadFilePath, imageOutputAbsolutePath+".png")
 	defer os.RemoveAll(imageOutputAbsolutePath + ".png")
 	if err != nil {
-		logger.Error("convert png failed", "error", err)
+		logger.Error("convert png failed, delete and downlod later", "error", err)
+		os.Remove(tempDownloadFilePath)
 		return
 	}
 	slog.Info("convert png succed, convert to heic now")
