@@ -183,6 +183,16 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 		}
 		break
 	}
+	if resp == nil {
+		logger.Error("fetch image failed, save empty path and skip for now", "error", err)
+		empty := ""
+		meta.LocalPath = &empty
+		if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
+			logger.Error("update local path failed", "error", err)
+			return
+		}
+		return
+	}
 	defer resp.Body.Close()
 	// 把resp.body 保存到 tempDownloadFilePath 中
 	output, err = os.OpenFile(tempDownloadFilePathDownloading, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
