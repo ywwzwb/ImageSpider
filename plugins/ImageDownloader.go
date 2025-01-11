@@ -139,7 +139,7 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	logger := slog.With("sourceID", sourceID).With("metaID", meta.ID, "hash", hash)
 	tempDownloadFilePath := path.Join(i.downloadTempPath, hash+path.Ext(meta.ImageURL))
 	tempDownloadFilePathDownloading := tempDownloadFilePath + ".downloading"
-	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6])
+	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6], hash)
 	imageOutputAbsolutePath := path.Join(i.app.GetAppConfig().ImageDir, imageOutputPath)
 	_, err := os.Stat(imageOutputAbsolutePath + ".heic")
 	if err == nil {
