@@ -11,6 +11,6 @@ RUN go build
 
 FROM alpine:latest
 # sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories &&\
-RUN    apk update && apk add libheif-dev x265-dev jpeg-dev libpng-dev
+RUN    apk update && apk add libheif-dev x265-dev jpeg-dev libpng-dev imagemagick
 COPY --from=0 /go/src/imagespider/imagespider /bin/imagespider
 CMD [ "imagespider","-c","/config/config.yaml"]

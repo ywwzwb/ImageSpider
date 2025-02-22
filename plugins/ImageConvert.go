@@ -2,17 +2,13 @@ package plugins
 
 import (
 	"fmt"
-	"image"
-	_ "image/jpeg"
-	"image/png"
-	_ "image/png"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path"
+	"strings"
 	"ywwzwb/imagespider/interfaces"
 	"ywwzwb/imagespider/models/config"
-
-	"github.com/strukturag/libheif/go/heif"
 )
 
 const ImageConvertPluginID string = "ImageConvert"
@@ -68,71 +64,13 @@ func (i *ImageConvert) ConvertHEIC(input, output string) error {
 		logger.Info("image already exists", "path", output)
 		return nil
 	}
-	// Open the source file
-	file, err := os.Open(input)
+	cmd := exec.Command("magick", input, output)
+	var errOut strings.Builder
+	cmd.Stderr = &errOut
+	err := cmd.Run()
 	if err != nil {
-		logger.Error("failed to open file", "path", input, "err", err)
-		return err
-	}
-	defer file.Close()
-	file.Seek(0, 0)
-	// Decode the image and get its format
-	image, _, err := image.Decode(file)
-	if err != nil {
-		logger.Error("failed to decode image", "path", input, "err", err)
-		return err
-	}
-
-	// Encode the image in HEIF format
-	var losslessMode heif.LosslessMode
-	if i.config.LosslessModeEnabled {
-		losslessMode = heif.LosslessModeEnabled
-	} else {
-		losslessMode = heif.LosslessModeDisabled
-	}
-	ctx, err := heif.EncodeFromImage(image, heif.CompressionHEVC, i.config.Quality, losslessMode, heif.LoggingLevelNone)
-	if err != nil {
-		logger.Error("failed to encode image", "path", input, "err", err)
-		return err
-	}
-
-	// Save the HEIF data to a file
-	if err := ctx.WriteToFile(output); err != nil {
-		logger.Error("failed to write to file", "output", output, "err", err)
+		logger.Error("convert image failed", "error", err, "stderr", errOut.String(), "exit code", cmd.ProcessState.ExitCode(), "cmd", cmd.String())
 		return err
 	}
 	return nil
-}
-func (i *ImageConvert) ConvertPNG(input, output string) error {
-	logger := slog.With("input", input, "output", output)
-	outputDir := path.Dir(output)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		logger.Error("create image output dir failed", "path", outputDir, "error", err)
-		return err
-	}
-	if _, err := os.Stat(output); err == nil {
-		logger.Info("image already exists", "path", output)
-		return nil
-	}
-	// Open the source file
-	file, err := os.Open(input)
-	if err != nil {
-		logger.Error("failed to open file", "path", input, "err", err)
-		return err
-	}
-	defer file.Close()
-	file.Seek(0, 0)
-	// Decode the image and get its format
-	image, _, err := image.Decode(file)
-	if err != nil {
-		logger.Error("failed to decode image", "path", input, "err", err)
-		return err
-	}
-	outputFile, err := os.Create(output)
-	if err == nil {
-		logger.Error("failed to create file", "output", output, "err", err)
-		return err
-	}
-	defer outputFile.Close()
-	return png.Encode(outputFile, image)
 }

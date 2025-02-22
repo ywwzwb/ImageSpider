@@ -225,20 +225,6 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	logger.Info("download success, convert")
 convert:
 	err = i.imageConvertService.ConvertHEIC(tempDownloadFilePath, imageOutputAbsolutePath+".heic")
-	if err == nil {
-		logger.Info("convert success, update local path")
-		goto save
-	}
-	logger.Error("convert heic failed, try to convert png first")
-	err = i.imageConvertService.ConvertPNG(tempDownloadFilePath, imageOutputAbsolutePath+".png")
-	defer os.RemoveAll(imageOutputAbsolutePath + ".png")
-	if err != nil {
-		logger.Error("convert png failed, delete and download later", "error", err)
-		os.Remove(tempDownloadFilePath)
-		return
-	}
-	slog.Info("convert png succeed, convert to heic now")
-	err = i.imageConvertService.ConvertHEIC(imageOutputAbsolutePath+".png", imageOutputAbsolutePath+".heic")
 	if err != nil {
 		logger.Error("convert heic failed, save empty path and skip for now", "error", err)
 		empty := ""
@@ -247,7 +233,6 @@ convert:
 			logger.Error("update local path failed", "error", err)
 			return
 		}
-		return
 	}
 	logger.Info("convert success, update local path")
 save:
