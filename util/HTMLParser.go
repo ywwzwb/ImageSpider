@@ -33,11 +33,11 @@ func (p *HTMLParser) Parse(doc *goquery.Document) ([]string, error) {
 	})
 	return result, nil
 }
-func (p *HTMLParser) match(selecton *goquery.Selection, m *config.ElementMatherConfig) bool {
+func (p *HTMLParser) match(selection *goquery.Selection, m *config.ElementMatherConfig) bool {
 	if m == nil {
 		return true
 	}
-	val, ok := p.getAttribute(selecton, m.Attribute)
+	val, ok := p.getAttribute(selection, m.Attribute)
 	if !ok {
 		return false
 	}
@@ -50,7 +50,7 @@ func (p *HTMLParser) match(selecton *goquery.Selection, m *config.ElementMatherC
 }
 func (p *HTMLParser) getAttribute(s *goquery.Selection, attr config.AttributeType) (string, bool) {
 	switch attr {
-	case config.AttributeTypeInnnerText:
+	case config.AttributeTypeInnerText:
 		return s.Text(), true
 	case config.AttributeTypeHref:
 		return s.Attr("href")

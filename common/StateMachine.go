@@ -15,11 +15,11 @@ type StateMachine struct {
 		when   func(Event, Context) bool
 		action func(Event, Context)
 	}
-	CurrnetState State
+	CurrentState State
 }
 
 func NewStateMachine(initial State) *StateMachine {
-	return &StateMachine{CurrnetState: initial}
+	return &StateMachine{CurrentState: initial}
 }
 
 func (s *StateMachine) AddTransactions(from []State, to State, on Event, when func(Event, Context) bool, action func(Event, Context)) {
@@ -47,9 +47,9 @@ func (s *StateMachine) Handle(event Event, context Context) {
 	if s.transitions == nil {
 		return
 	}
-	for _, t := range s.transitions[s.CurrnetState] {
+	for _, t := range s.transitions[s.CurrentState] {
 		if t.on.Equals(event) && t.when(event, context) {
-			s.CurrnetState = t.to
+			s.CurrentState = t.to
 			t.action(event, context)
 			return
 		}

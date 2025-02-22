@@ -105,19 +105,19 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 	if err == nil {
 		return nil
 	}
-	slog.Warn("insert failed, maybe parition not exist, create now")
-	// insert partion
-	partionName := fmt.Sprintf("%04d%02d", meta.PostTime.UTC().Year(), meta.PostTime.UTC().Month())
+	slog.Warn("insert failed, maybe partition not exist, create now")
+	// insert partition
+	partitionName := fmt.Sprintf("%04d%02d", meta.PostTime.UTC().Year(), meta.PostTime.UTC().Month())
 	begin := fmt.Sprintf("%04d-%02d-01", meta.PostTime.UTC().Year(), meta.PostTime.UTC().Month())
 	end := fmt.Sprintf("%04d-%02d-01", meta.PostTime.AddDate(0, 1, 0).UTC().Year(), meta.PostTime.AddDate(0, 1, 0).UTC().Month())
 	sql := fmt.Sprintf("CREATE TABLE IF NOT EXISTS images_source_%s_%s PARTITION OF images_source_%s FOR VALUES FROM ('%s') TO ('%s');",
-		meta.SourceID, partionName, meta.SourceID, begin, end)
+		meta.SourceID, partitionName, meta.SourceID, begin, end)
 	_, err = s.db.Exec(sql)
 	if err != nil {
-		slog.Error("create parition failed", "error", err, "sql", sql)
+		slog.Error("create partition failed", "error", err, "sql", sql)
 		return err
 	}
-	slog.Info("create partion succeed, retry insert", "sql", sql)
+	slog.Info("create partition succeed, retry insert", "sql", sql)
 	_, err = s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time) VALUES ($1, $2, $3, $4, $5, $6)",
 		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime)
 	if err != nil {

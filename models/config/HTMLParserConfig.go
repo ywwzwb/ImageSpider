@@ -10,7 +10,7 @@ import (
 type AttributeType int
 
 const (
-	AttributeTypeInnnerText AttributeType = iota
+	AttributeTypeInnerText AttributeType = iota
 	AttributeTypeHref
 	AttributeTypeTitle
 )
@@ -18,7 +18,7 @@ const (
 func (a *AttributeType) fromString(s string) error {
 	switch strings.ToLower(s) {
 	case "innertext":
-		*a = AttributeTypeInnnerText
+		*a = AttributeTypeInnerText
 	case "href":
 		*a = AttributeTypeHref
 	case "title":

@@ -9,7 +9,7 @@ type IApplication interface {
 	Run() error
 
 	GetAppConfig() *config.Config
-	GetRumtimeConfig() *runtimeConfig.Config
+	GetRuntimeConfig() *runtimeConfig.Config
 
 	GetService(callerPluginID, targetPluginID string, serviceID ServiceID) (IService, error)
 }

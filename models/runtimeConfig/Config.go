@@ -40,7 +40,7 @@ func NewConfigFromPath(path string) *Config {
 		return emptyConfig
 	}
 	if currentConfig.Version != runTimeConfigV1 {
-		slog.Error("unsupported config version", "version", emptyConfig.Version)
+		slog.Error("unsupporteded config version", "version", emptyConfig.Version)
 		return emptyConfig
 	}
 	slog.Debug("current run config", "config", currentConfig)
@@ -100,7 +100,7 @@ func (c *Config) ReplaceStackTop(id string, newVal int64) *int64 {
 	c.Save()
 	return oldTop
 }
-func (c *Config) AppndStack(id string, newVal int64) {
+func (c *Config) AppendStack(id string, newVal int64) {
 	logger := slog.With("source id", id).With("new val", newVal)
 	logger.Debug("append stack")
 	for {

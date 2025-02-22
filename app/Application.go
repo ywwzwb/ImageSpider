@@ -30,7 +30,7 @@ type Application struct {
 	plugins       map[string]*pluginMeta
 }
 
-// create a sigleton Application
+// create a singleton Application
 var application *Application
 
 func GetApplication() *Application {
@@ -65,7 +65,7 @@ func (app *Application) Run() error {
 	}
 	// init logger
 	util.InitLogger(app.appConfig.Logger)
-	// init runtim config
+	// init runtime config
 	app.runtimeConfig = runtimeConfig.NewConfigFromPath(path.Join(app.appConfig.WorkDir, "/runtimeConfig.yaml"))
 	// register plugins
 	app.loadPlugins()
@@ -153,7 +153,7 @@ func (app *Application) shutdown() {
 func (app *Application) GetAppConfig() *config.Config {
 	return &app.appConfig
 }
-func (app *Application) GetRumtimeConfig() *runtimeConfig.Config {
+func (app *Application) GetRuntimeConfig() *runtimeConfig.Config {
 	return app.runtimeConfig
 }
 func (app *Application) GetService(callerPluginID, targetPluginID string, serviceID interfaces.ServiceID) (interfaces.IService, error) {

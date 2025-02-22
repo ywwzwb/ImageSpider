@@ -69,10 +69,10 @@ func (s *API) Unload() {
 	if err := s.server.Shutdown(ctx); err != nil {
 		slog.Error("failed to shutdown server", "error", err)
 	}
-	slog.Error("Server stoped")
+	slog.Error("Server stopped")
 }
 func (s *API) GetService(serviceID interfaces.ServiceID) (interfaces.IService, error) {
-	return nil, fmt.Errorf("unsupport service")
+	return nil, fmt.Errorf("unsupported service")
 }
 func (s *API) listAllTags(c *gin.Context) {
 	sourceid := c.Param("sourceid")
