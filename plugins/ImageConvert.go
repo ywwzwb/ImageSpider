@@ -60,17 +60,26 @@ func (i *ImageConvert) ConvertHEIC(input, output string) error {
 		logger.Error("create image output dir failed", "path", outputDir, "error", err)
 		return err
 	}
-	if _, err := os.Stat(output); err == nil {
-		logger.Info("image already exists", "path", output)
-		return nil
+	if _, err := os.Stat(output); err != nil {
+		cmd := exec.Command("magick", input, output)
+		var errOut strings.Builder
+		cmd.Stderr = &errOut
+		err := cmd.Run()
+		if err != nil {
+			logger.Error("convert image failed", "error", err, "stderr", errOut.String(), "exit code", cmd.ProcessState.ExitCode(), "cmd", cmd.String())
+			return err
+		}
 	}
-	cmd := exec.Command("magick", input, output)
-	var errOut strings.Builder
-	cmd.Stderr = &errOut
-	err := cmd.Run()
-	if err != nil {
-		logger.Error("convert image failed", "error", err, "stderr", errOut.String(), "exit code", cmd.ProcessState.ExitCode(), "cmd", cmd.String())
-		return err
+	thumbnailPath := strings.Replace(output, ".heic", "@320.heic", 1)
+	if _, err := os.Stat(thumbnailPath); err != nil {
+		cmd := exec.Command("magick", input, "-resize", "320x", thumbnailPath)
+		var errOut strings.Builder
+		cmd.Stderr = &errOut
+		err := cmd.Run()
+		if err != nil {
+			logger.Error("create thumbnail image failed", "error", err, "stderr", errOut.String(), "exit code", cmd.ProcessState.ExitCode(), "cmd", cmd.String())
+			return err
+		}
 	}
 	return nil
 }
