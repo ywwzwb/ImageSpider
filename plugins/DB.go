@@ -69,15 +69,24 @@ func (s *DB) Unload() {
 	s.db.Close()
 }
 func (s *DB) InitSource(id string) error {
-	sql := fmt.Sprintf("CREATE TABLE IF NOT EXISTS images_source_%s PARTITION OF images FOR VALUES IN ('%s') PARTITION BY RANGE (post_time)",
+	initImagesSql := fmt.Sprintf("CREATE TABLE IF NOT EXISTS images_source_%s PARTITION OF images FOR VALUES IN ('%s') PARTITION BY RANGE (post_time)",
 		id, id)
-	logger := slog.With("sql", sql)
-	res, err := s.db.Exec(sql)
+	logger := slog.With("sql", initImagesSql)
+	res, err := s.db.Exec(initImagesSql)
 	if err != nil {
-		logger.Error("init source failed", "error", err)
+		logger.Error("init image source failed", "error", err)
 		return err
 	}
-	logger.Info("init source success", "result", res)
+	logger.Info("init image source success", "result", res)
+	initTagsSql := fmt.Sprintf("CREATE TABLE IF NOT EXISTS tags_source_%s PARTITION OF tags FOR VALUES IN ('%s')",
+		id, id)
+	logger = slog.With("sql", initTagsSql)
+	res, err = s.db.Exec(initTagsSql)
+	if err != nil {
+		logger.Error("init tag source failed", "error", err)
+		return err
+	}
+	logger.Info("init tag source success", "result", res)
 	return nil
 
 }
@@ -102,6 +111,11 @@ func (s *DB) GetMeta(id, source string) (*models.ImageMeta, bool) {
 func (s *DB) InsertMeta(meta models.ImageMeta) error {
 	_, err := s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time) VALUES ($1, $2, $3, $4, $5, $6)",
 		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime)
+	for tag := range meta.Tags {
+		// 插入 tag 信息
+		s.db.Exec("INSERT INTO tags (tag, source_id, count) VALUES ($1, $2, 0)", tag, meta.SourceID)
+		s.db.Exec("UPDATE tags SET count = count + 1 WHERE tag = $1 AND source_id = $2", tag, meta.SourceID)
+	}
 	if err == nil {
 		return nil
 	}
@@ -158,6 +172,12 @@ func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
 		slog.Error("update local path failed", "error", err)
 		return err
 	}
+	if meta.LocalPath != nil && len(*meta.LocalPath) != 0 {
+		for tag := range meta.Tags {
+			// 插入 cover 信息
+			s.db.Exec("UPDATE tags SET cover = $1 WHERE cover IS NULL AND tag = $2 AND source_id = $3", meta.ID, tag, meta.SourceID)
+		}
+	}
 	return nil
 }
 func (s *DB) GetService(serviceID interfaces.ServiceID) (interfaces.IService, error) {
@@ -168,55 +188,30 @@ func (s *DB) GetService(serviceID interfaces.ServiceID) (interfaces.IService, er
 	return nil, fmt.Errorf("service not found")
 }
 func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error) {
-	// 分页查询标签列表
+	// 分页查询核心SQL（带封面信息）
 	pageQuery := `
-    WITH filtered_tags AS (
-        SELECT
-            t.tag,
-            i.id,
-            i.source_id,
-            i.post_time
-        FROM images i
-        CROSS JOIN LATERAL UNNEST(i.tags) AS t(tag)
-        WHERE
-            i.source_id = $1
-            AND i.local_path IS NOT NULL
-            AND i.local_path != ''
-            AND t.tag NOT LIKE 'group\_%' ESCAPE '\'
-    ),
-    tag_stats AS (
-        SELECT
-            tag,
-            COUNT(*) AS count,
-            MAX(post_time) AS max_post_time
-        FROM filtered_tags
-        GROUP BY tag
-    ),
-    latest_image_ids AS (
-        SELECT DISTINCT ON (ft.tag)
-            ft.tag,
-            ft.id,
-            ft.source_id,
-            ft.post_time
-        FROM filtered_tags ft
-        JOIN tag_stats ts ON ft.tag = ts.tag AND ft.post_time = ts.max_post_time
-        ORDER BY ft.tag, ft.post_time DESC, ft.id DESC
-    )
-    SELECT
-        ts.tag,
-        ts.count,
+    SELECT 
+        t.tag,
+        t.count,
         i.id AS cover_id,
         i.tags AS cover_tags,
         i.local_path AS cover_local_path,
         i.image_url AS cover_image_url,
         i.post_time AS cover_post_time,
         i.source_id AS cover_source_id
-    FROM tag_stats ts
-    JOIN latest_image_ids li ON ts.tag = li.tag
-    JOIN images i ON li.id = i.id AND li.source_id = i.source_id AND li.post_time = i.post_time
-    ORDER BY ts.count DESC
-    LIMIT $2 OFFSET $3;
+    FROM tags t
+    LEFT JOIN images i 
+        ON t.cover = i.id
+        AND i.source_id = t.source_id
+    WHERE 
+        t.source_id = $1
+        AND t.cover IS NOT NULL
+        AND t.tag NOT LIKE 'group_%'
+    ORDER BY t.count DESC
+    LIMIT $2 OFFSET $3
     `
+
+	// 执行分页查询
 	rows, err := s.db.Query(pageQuery, source, limit, offset)
 	if err != nil {
 		slog.Error("分页查询失败", "error", err)
@@ -226,12 +221,16 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 
 	var tagList []models.TagInfo
 	for rows.Next() {
-		var tagInfo models.TagInfo
-		var cover models.ImageMeta
+		var (
+			tagInfo models.TagInfo
+			cover   models.ImageMeta
+			nullID  sql.NullString
+		)
+
 		err := rows.Scan(
 			&tagInfo.Tag,
 			&tagInfo.Count,
-			&cover.ID,
+			&nullID,
 			pq.Array(&cover.Tags),
 			&cover.LocalPath,
 			&cover.ImageURL,
@@ -241,26 +240,20 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 		if err != nil {
 			return nil, err
 		}
-		tagInfo.Cover = cover
 		tagList = append(tagList, tagInfo)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// 查询总数量
+	// 获取总记录数（从tags表直接统计）
 	countQuery := `
-    WITH filtered_tags AS (
-        SELECT t.tag
-        FROM images i
-        CROSS JOIN LATERAL UNNEST(i.tags) AS t(tag)
+        SELECT COUNT(*) 
+        FROM tags 
         WHERE 
-        i.source_id = $1 
-        AND i.local_path IS NOT NULL 
-        AND i.local_path != ''
-        AND t.tag NOT LIKE 'group\_%' ESCAPE '\'
-    )
-    SELECT COUNT(DISTINCT tag) FROM filtered_tags
+            source_id = $1
+            AND tag NOT LIKE 'group_%'
+            AND cover IS NOT NULL
     `
 	var totalCount int
 	err = s.db.QueryRow(countQuery, source).Scan(&totalCount)
