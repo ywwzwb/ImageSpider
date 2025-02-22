@@ -168,45 +168,105 @@ func (s *DB) GetService(serviceID interfaces.ServiceID) (interfaces.IService, er
 	return nil, fmt.Errorf("service not found")
 }
 func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error) {
-	rows, err := s.db.Query(`WITH tag_list AS (
-				SELECT unnest(tags) AS tag
-				FROM images
-				WHERE source_id = $1
-			), filtered_tags AS (
-				SELECT tag
-				FROM tag_list
-				WHERE tag NOT LIKE 'group_%'
-			), tag_count AS (
-				SELECT tag, COUNT(*) AS count
-				FROM filtered_tags
-				GROUP BY tag
-				ORDER BY count DESC, tag
-			)
-			SELECT tag, count, total_tags
-			FROM (
-				SELECT tag, count, COUNT(*) OVER() AS total_tags
-				FROM tag_count
-			) subquery
-			LIMIT $2 OFFSET $3;`, source, limit, offset)
+	// 分页查询标签列表
+	pageQuery := `
+    WITH filtered_tags AS (
+        SELECT
+            t.tag,
+            i.id,
+            i.source_id,
+            i.post_time
+        FROM images i
+        CROSS JOIN LATERAL UNNEST(i.tags) AS t(tag)
+        WHERE
+            i.source_id = $1
+            AND t.tag NOT LIKE 'group\_%' ESCAPE '\'
+    ),
+    tag_stats AS (
+        SELECT
+            tag,
+            COUNT(*) AS count,
+            MAX(post_time) AS max_post_time
+        FROM filtered_tags
+        GROUP BY tag
+    ),
+    latest_image_ids AS (
+        SELECT DISTINCT ON (ft.tag)
+            ft.tag,
+            ft.id,
+            ft.source_id,
+            ft.post_time
+        FROM filtered_tags ft
+        JOIN tag_stats ts ON ft.tag = ts.tag AND ft.post_time = ts.max_post_time
+        ORDER BY ft.tag, ft.post_time DESC, ft.id DESC
+    )
+    SELECT
+        ts.tag,
+        ts.count,
+        i.id AS cover_id,
+        i.tags AS cover_tags,
+        i.local_path AS cover_local_path,
+        i.image_url AS cover_image_url,
+        i.post_time AS cover_post_time,
+        i.source_id AS cover_source_id
+    FROM tag_stats ts
+    JOIN latest_image_ids li ON ts.tag = li.tag
+    JOIN images i ON li.id = i.id AND li.source_id = i.source_id AND li.post_time = i.post_time
+    ORDER BY ts.count DESC
+    LIMIT $2 OFFSET $3;
+    `
+	rows, err := s.db.Query(pageQuery, source, limit, offset)
 	if err != nil {
-		slog.Error("query failed", "error", err)
+		slog.Error("分页查询失败", "error", err)
 		return nil, err
 	}
 	defer rows.Close()
-	tagList := &models.TagList{
-		TagList:    make([]models.TagInfo, 0),
-		TotalCount: 0,
-	}
+
+	var tagList []models.TagInfo
 	for rows.Next() {
-		var tag models.TagInfo
-		err = rows.Scan(&tag.Tag, &tag.Count, &tagList.TotalCount)
+		var tagInfo models.TagInfo
+		var cover models.ImageMeta
+		err := rows.Scan(
+			&tagInfo.Tag,
+			&tagInfo.Count,
+			&cover.ID,
+			pq.Array(&cover.Tags),
+			&cover.LocalPath,
+			&cover.ImageURL,
+			&cover.PostTime,
+			&cover.SourceID,
+		)
 		if err != nil {
-			slog.Error("scan failed", "error", err)
 			return nil, err
 		}
-		tagList.TagList = append(tagList.TagList, tag)
+		tagInfo.Cover = cover
+		tagList = append(tagList, tagInfo)
 	}
-	return tagList, nil
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	// 查询总数量
+	countQuery := `
+    WITH filtered_tags AS (
+        SELECT t.tag
+        FROM images i
+        CROSS JOIN LATERAL UNNEST(i.tags) AS t(tag)
+        WHERE i.source_id = $1 AND t.tag NOT LIKE 'group\_%' ESCAPE '\'
+    )
+    SELECT COUNT(DISTINCT tag) FROM filtered_tags
+    `
+	var totalCount int
+	err = s.db.QueryRow(countQuery, source).Scan(&totalCount)
+	if err != nil {
+		slog.Error("总数查询失败", "error", err)
+		return nil, err
+	}
+
+	return &models.TagList{
+		TagList:    tagList,
+		TotalCount: totalCount,
+	}, nil
 }
 
 func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, limit int64) (*models.ImageList, error) {
