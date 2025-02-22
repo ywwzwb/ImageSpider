@@ -180,6 +180,8 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
         CROSS JOIN LATERAL UNNEST(i.tags) AS t(tag)
         WHERE
             i.source_id = $1
+            AND i.local_path IS NOT NULL
+            AND i.local_path != ''
             AND t.tag NOT LIKE 'group\_%' ESCAPE '\'
     ),
     tag_stats AS (
@@ -252,7 +254,11 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
         SELECT t.tag
         FROM images i
         CROSS JOIN LATERAL UNNEST(i.tags) AS t(tag)
-        WHERE i.source_id = $1 AND t.tag NOT LIKE 'group\_%' ESCAPE '\'
+        WHERE 
+        i.source_id = $1 
+        AND i.local_path IS NOT NULL 
+        AND i.local_path != ''
+        AND t.tag NOT LIKE 'group\_%' ESCAPE '\'
     )
     SELECT COUNT(DISTINCT tag) FROM filtered_tags
     `
