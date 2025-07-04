@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -306,10 +307,30 @@ func (s *Spider) fetchListStateRun(event spiderEvent, context *spiderContext, sm
 		return
 	}
 	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	if err != nil {
+		logger.Error("parse html failed", "error", err)
+		sm.Handle(spiderEvent{eventType: spiderEventTypeError, error: err}, context)
+		// 保存错误到一个文件中, 方便事后检查
+		func(resp *http.Response, savePath string) {
+			// 创建文件
+			file, err := os.Create(savePath)
+			if err != nil {
+				logger.Error("save last page failed, cause create error save file error", "error", err, "path", savePath)
+				return
+			}
+			defer file.Close()
+			// 将响应体复制到文件
+			_, err = io.Copy(file, resp.Body)
+			if err != nil {
+				logger.Error("save last page failed, cause copy content failed", "error", err, "path", savePath)
+				return
+			}
+		}(resp, path.Join(s.app.GetAppConfig().WorkDir, "lastError.html"))
+		return
+	}
 	if html, err := doc.Html(); err == nil {
 		os.WriteFile(path.Join(s.app.GetAppConfig().WorkDir, "page.html"), []byte(html), 0644)
-	}
-	if err != nil {
+	} else {
 		logger.Error("parse html failed", "error", err)
 		sm.Handle(spiderEvent{eventType: spiderEventTypeError, error: err}, context)
 		return
