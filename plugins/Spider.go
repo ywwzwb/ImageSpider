@@ -84,12 +84,13 @@ func (e spiderError) Error() string {
 }
 
 type Spider struct {
-	app              interfaces.IApplication
-	config           config.SpiderList
-	stopChain        chan bool
-	stopFinishChain  chan bool
-	dbService        interfaces.IDBService
-	dataCheckService interfaces.IDataCheckerService
+	app                      interfaces.IApplication
+	config                   config.SpiderList
+	stopChain                chan bool
+	stopFinishChain          chan bool
+	dbService                interfaces.IDBService
+	dataCheckService         interfaces.IDataCheckerService
+	fileIntegrityCheckerService interfaces.IFileIntegrityCheckerService
 }
 
 func newSpider() *Spider {
@@ -137,6 +138,14 @@ func (s *Spider) Load(app interfaces.IApplication) error {
 	}
 	s.dataCheckService = dataCheckService.(interfaces.IDataCheckerService)
 
+	// 获取文件完整性检查服务（可选）
+	fileIntegrityCheckerService, err := app.GetService(s.ID(), FileIntegrityCheckerPluginID, interfaces.FileIntegrityCheckerServiceID)
+	if err == nil {
+		s.fileIntegrityCheckerService = fileIntegrityCheckerService.(interfaces.IFileIntegrityCheckerService)
+	} else {
+		slog.Info("file integrity checker not available, skipping")
+	}
+
 	for _, spiderConfig := range s.config {
 		imageDownloaderService.AddConfig(spiderConfig.ID, &spiderConfig.ImageDownloaderConfig)
 		go s.runSpider(spiderConfig)
@@ -156,6 +165,10 @@ func (s *Spider) runSpider(spiderConfig *config.SpiderConfig) {
 	logger := slog.With("spider", spiderConfig.ID)
 	logger.Info("start spider")
 	s.dataCheckService.StartChecking(spiderConfig.ID)
+	// 如果文件完整性检查服务可用，启动它
+	if s.fileIntegrityCheckerService != nil {
+		s.fileIntegrityCheckerService.StartScanning(spiderConfig.ID)
+	}
 	// 启动时添加一个 第 0 页到栈顶, 以便从头开始刷
 
 	s.app.GetRuntimeConfig().AppendStack(spiderConfig.ID, 0)

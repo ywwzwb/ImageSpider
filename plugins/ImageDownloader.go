@@ -135,12 +135,15 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	var output *os.File = nil
 	var startDownloadPos int64 = 0
 	var stat os.FileInfo
+	var downloadedSize int64
+	var expectedSize int64 = -1
 	hash := meta.Hash()
 	logger := slog.With("sourceID", sourceID).With("metaID", meta.ID, "hash", hash)
 	tempDownloadFilePath := path.Join(i.downloadTempPath, hash+path.Ext(meta.ImageURL))
 	tempDownloadFilePathDownloading := tempDownloadFilePath + ".downloading"
 	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6], hash)
 	imageOutputAbsolutePath := path.Join(i.app.GetAppConfig().ImageDir, imageOutputPath)
+
 	_, err := os.Stat(imageOutputAbsolutePath + ".heic")
 	if err == nil {
 		logger.Info("converted file exists, save it")
@@ -154,6 +157,7 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	stat, err = os.Stat(tempDownloadFilePathDownloading)
 	if err == nil {
 		startDownloadPos = stat.Size()
+		downloadedSize = startDownloadPos
 		logger.Info("try resume download from", "offset", startDownloadPos)
 	}
 	logger.Info("start download")
@@ -172,6 +176,7 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 		resp, err = httpClient.Do(req)
 		if err != nil || (resp.StatusCode != 200 && resp.StatusCode != 206) {
 			startDownloadPos = 0
+			downloadedSize = 0
 			os.Remove(tempDownloadFilePathDownloading)
 			select {
 			case <-i.stopChain:
@@ -194,12 +199,25 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 		return
 	}
 	defer resp.Body.Close()
+
+	// 获取预期的内容长度
+	expectedSize = -1
+	if resp.StatusCode == 200 {
+		expectedSize = resp.ContentLength
+	} else if resp.StatusCode == 206 && startDownloadPos > 0 {
+		// 对于 Range 请求，计算总大小
+		if resp.ContentLength > 0 {
+			expectedSize = startDownloadPos + resp.ContentLength
+		}
+	}
+
 	// 把resp.body 保存到 tempDownloadFilePath 中
 	output, err = os.OpenFile(tempDownloadFilePathDownloading, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	if err != nil {
 		logger.Error("create temp file failed", "error", err)
 		return
 	}
+
 	for {
 		select {
 		case <-i.stopChain:
@@ -209,20 +227,43 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 		default:
 		}
 		size, err := io.CopyN(output, resp.Body, 4*1024)
+		downloadedSize += size
 		if size == 0 || err != nil {
+			if err != nil && err != io.EOF {
+				logger.Error("download interrupted", "error", err, "downloadedSize", downloadedSize, "expectedSize", expectedSize)
+			}
 			break
 		}
 	}
 	output.Close()
-	if err != nil {
-		logger.Error("write temp file failed", "error", err)
+
+	// 验证下载的文件大小是否符合预期
+	if expectedSize > 0 && downloadedSize != expectedSize {
+		logger.Error("download incomplete", "downloadedSize", downloadedSize, "expectedSize", expectedSize)
+		// 删除不完整的文件
+		os.Remove(tempDownloadFilePathDownloading)
 		return
 	}
+
+	// 检查是否有下载错误
+	if err != nil && err != io.EOF {
+		logger.Error("write temp file failed", "error", err)
+		os.Remove(tempDownloadFilePathDownloading)
+		return
+	}
+
+	// 验证下载的文件不为空
+	if downloadedSize == 0 {
+		logger.Error("downloaded file is empty")
+		os.Remove(tempDownloadFilePathDownloading)
+		return
+	}
+
 	if err := os.Rename(tempDownloadFilePathDownloading, tempDownloadFilePath); err != nil {
 		logger.Error("rename temp file failed", "error", err)
 		return
 	}
-	logger.Info("download success, convert")
+	logger.Info("download success", "size", downloadedSize, "expectedSize", expectedSize)
 convert:
 	err = i.imageConvertService.ConvertHEIC(tempDownloadFilePath, imageOutputAbsolutePath+".heic")
 	if err != nil {
