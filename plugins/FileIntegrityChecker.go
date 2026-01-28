@@ -3,9 +3,11 @@ package plugins
 import (
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -60,7 +62,7 @@ func (f *FileIntegrityChecker) Load(app interfaces.IApplication) error {
 }
 
 func (f *FileIntegrityChecker) Unload() {
-	for ; f.goroutinCount.Load() > 0; f.goroutinCount.Add(-1) {
+	for { f.goroutinCount.Load() > 0; f.goroutinCount.Add(-1) } {
 		f.stopChain <- true
 		<-f.stopFinishChain
 	}
@@ -191,7 +193,7 @@ func (f *FileIntegrityChecker) checkAndRemoveCorruptedFile(filePath string, meta
 // validateImage 通过ImageMagick命令行工具验证图片完整性
 func (f *FileIntegrityChecker) validateImage(filePath string) error {
 	// 使用ImageMagick的identify命令验证图片
-	cmd := exec.Command("magick", "identify", filePath)
+	cmd := exec.Command("magick", "identify", "-regard-warnings", filePath)
 	
 	// 执行命令并捕获输出
 	output, err := cmd.CombinedOutput()
@@ -206,5 +208,97 @@ func (f *FileIntegrityChecker) validateImage(filePath string) error {
 		return fmt.Errorf("ImageMagick returned empty output for file: %s", filePath)
 	}
 	
+	// 检查图片是否是纯色图片（可能是损坏图片的标志）
+	isSolidColor, err := f.isSolidColorImage(filePath)
+	if err != nil {
+		return fmt.Errorf("error checking solid color: %w", err)
+	}
+	
+	if isSolidColor {
+		return fmt.Errorf("image appears to be solid color, likely corrupted: %s", filePath)
+	}
+	
+	// 检查图片熵值（复杂度），过低的熵值可能表示图片质量差或损坏
+	entropy, err := f.calculateEntropy(filePath)
+	if err != nil {
+		return fmt.Errorf("error calculating entropy: %w", err)
+	}
+	
+	// 如果熵值太低（阈值设为2.0，可根据需要调整），认为图片有问题
+	if entropy < 2.0 {
+		return fmt.Errorf("image entropy too low (%f), likely corrupted: %s", entropy, filePath)
+	}
+	
 	return nil
+}
+
+// isSolidColorImage 检查图片是否为纯色图片
+func (f *FileIntegrityChecker) isSolidColorImage(filePath string) (bool, error) {
+	// 使用ImageMagick计算图片的标准偏差，如果标准偏差为0则为纯色图片
+	cmd := exec.Command("magick", filePath, "-format", "%[fx:standard_deviation]", "info:")
+	output, err := cmd.Output()
+	if err != nil {
+		return false, err
+	}
+	
+	sdStr := strings.TrimSpace(string(output))
+	sd, err := strconv.ParseFloat(sdStr, 64)
+	if err != nil {
+		return false, fmt.Errorf("error parsing standard deviation: %w", err)
+	}
+	
+	// 如果标准偏差接近0，说明是纯色图片
+	return sd < 0.001, nil
+}
+
+// calculateEntropy 计算图片的信息熵，用于评估图片复杂度
+func (f *FileIntegrityChecker) calculateEntropy(filePath string) (float64, error) {
+	// 使用ImageMagick生成直方图并计算熵
+	cmd := exec.Command("magick", filePath, "-define", "histogram:unique-colors=true", "histogram:info:-")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	
+	// 分析直方图数据计算熵
+	histogramLines := strings.Split(string(output), "\n")
+	totalPixels := 0
+	colorCounts := make(map[string]int)
+	
+	for _, line := range histogramLines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, ":") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				countStr := strings.TrimSpace(parts[0])
+				// 移除颜色计数中的数字和括号
+				var count int
+				fmt.Sscanf(countStr, "#%d", &count)
+				totalPixels += count
+				colorCounts[line] = count
+			}
+		}
+	}
+	
+	if totalPixels == 0 {
+		return 0, fmt.Errorf("could not determine pixel count")
+	}
+	
+	// 计算熵值 H = -sum(p_i * log2(p_i))
+	entropy := 0.0
+	for _, count := range colorCounts {
+		if count > 0 {
+			prob := float64(count) / float64(totalPixels)
+			if prob > 0 {
+				entropy -= prob * logBase2(prob)
+			}
+		}
+	}
+	
+	return entropy, nil
+}
+
+// logBase2 计算以2为底的对数
+func logBase2(x float64) float64 {
+	return 1.442695040888963 * math.Log(x) // 1/ln(2) ≈ 1.442695
 }
