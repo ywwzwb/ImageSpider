@@ -2,13 +2,11 @@ package plugins
 
 import (
 	"fmt"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -190,31 +188,23 @@ func (f *FileIntegrityChecker) checkAndRemoveCorruptedFile(filePath string, meta
 	}
 }
 
-// validateImage 通过尝试解码图片来验证其完整性
+// validateImage 通过ImageMagick命令行工具验证图片完整性
 func (f *FileIntegrityChecker) validateImage(filePath string) error {
-	// 打开文件
-	file, err := os.Open(filePath)
+	// 使用ImageMagick的identify命令验证图片
+	cmd := exec.Command("magick", "identify", filePath)
+	
+	// 执行命令并捕获输出
+	output, err := cmd.CombinedOutput()
+	
 	if err != nil {
-		return fmt.Errorf("failed to open file: %w", err)
+		// 如果命令执行失败，说明图片可能已损坏
+		return fmt.Errorf("failed to identify image with ImageMagick: %w, output: %s", err, string(output))
 	}
-	defer file.Close()
-
-	// 获取文件信息
-	stat, err := file.Stat()
-	if err != nil {
-		return fmt.Errorf("failed to stat file: %w", err)
+	
+	// 如果输出为空，也认为是无效图片
+	if len(strings.TrimSpace(string(output))) == 0 {
+		return fmt.Errorf("ImageMagick returned empty output for file: %s", filePath)
 	}
-
-	// 检查文件是否为空
-	if stat.Size() == 0 {
-		return fmt.Errorf("file is empty")
-	}
-
-	// 尝试解码图片
-	_, _, err = image.Decode(file)
-	if err != nil {
-		return fmt.Errorf("failed to decode image: %w", err)
-	}
-
+	
 	return nil
 }
