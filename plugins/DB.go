@@ -65,8 +65,88 @@ func (s *DB) Load(app interfaces.IApplication) error {
 		return err
 	}
 	slog.Info("init database success", "result", res)
+
+	// 执行数据库迁移
+	if err := s.runMigrations(); err != nil {
+		slog.Error("database migration failed", "error", err)
+		return err
+	}
+
 	return nil
 }
+
+// runMigrations 检查并执行数据库迁移
+func (s *DB) runMigrations() error {
+	logger := slog.With("migration", "v1")
+
+	// 检查是否需要执行 migration v1 (添加 integrity_status 列)
+	needsMigration, err := s.checkIfNeedsMigrationV1()
+	if err != nil {
+		logger.Error("failed to check migration status", "error", err)
+		return err
+	}
+
+	if needsMigration {
+		logger.Info("executing migration v1: adding integrity_status column")
+
+		// 执行迁移脚本
+		_, err = s.db.Exec(embed.MigrationV1Sql)
+		if err != nil {
+			logger.Error("migration v1 failed", "error", err)
+			return fmt.Errorf("migration v1 failed: %w", err)
+		}
+
+		logger.Info("migration v1 completed successfully")
+	} else {
+		logger.Debug("migration v1 not needed or already applied")
+	}
+
+	return nil
+}
+
+// checkIfNeedsMigrationV1 检查是否需要执行 migration v1
+func (s *DB) checkIfNeedsMigrationV1() (bool, error) {
+	logger := slog.With("migration", "v1")
+
+	// 首先检查 schema_migrations 表是否存在
+	var tableExists bool
+	err := s.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM information_schema.tables
+			WHERE table_name = 'schema_migrations'
+		)
+	`).Scan(&tableExists)
+
+	if err != nil {
+		return false, err
+	}
+
+	if !tableExists {
+		logger.Info("schema_migrations table does not exist, migration needed")
+		return true, nil
+	}
+
+	// 检查 migration v1 是否已经执行
+	var migrationExists bool
+	err = s.db.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM schema_migrations WHERE version = 'v1'
+		)
+	`).Scan(&migrationExists)
+
+	if err != nil {
+		return false, err
+	}
+
+	if migrationExists {
+		logger.Debug("migration v1 already applied")
+		return false, nil
+	}
+
+	logger.Info("migration v1 not applied yet")
+	return true, nil
+}
+
 func (s *DB) Unload() {
 	s.db.Close()
 }
@@ -93,7 +173,7 @@ func (s *DB) InitSource(id string) error {
 
 }
 func (s *DB) GetMeta(id, source string) (*models.ImageMeta, bool) {
-	rows, err := s.db.Query("SELECT id, tags, image_url, local_path, post_time, source_id FROM images WHERE id = $1 AND source_id= $2", id, source)
+	rows, err := s.db.Query("SELECT id, tags, image_url, local_path, post_time, source_id, integrity_status FROM images WHERE id = $1 AND source_id= $2", id, source)
 	if err != nil {
 		slog.Error("query failed", "error", err)
 		return nil, false
@@ -103,16 +183,28 @@ func (s *DB) GetMeta(id, source string) (*models.ImageMeta, bool) {
 		return nil, false
 	}
 	meta := models.ImageMeta{}
-	err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.LocalPath, &meta.PostTime, &meta.SourceID)
+	var status sql.NullInt16
+	err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.LocalPath, &meta.PostTime, &meta.SourceID, &status)
 	if err != nil {
 		slog.Error("scan failed", "error", err)
 		return nil, false
 	}
+	// 处理NULL值，NULL也视为unknown
+	if status.Valid {
+		meta.IntegrityStatus = models.ImageIntegrityStatus(status.Int16)
+	} else {
+		meta.IntegrityStatus = models.ImageIntegrityUnknown
+	}
 	return &meta, true
 }
 func (s *DB) InsertMeta(meta models.ImageMeta) error {
-	_, err := s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time) VALUES ($1, $2, $3, $4, $5, $6)",
-		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime)
+	// 设置integrity_status的默认值
+	if meta.IntegrityStatus == 0 {
+		meta.IntegrityStatus = models.ImageIntegrityUnknown
+	}
+
+	_, err := s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time, integrity_status) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime, int16(meta.IntegrityStatus))
 	for tag := range meta.Tags {
 		// 插入 tag 信息
 		s.db.Exec("INSERT INTO tags (tag, source_id, count) VALUES ($1, $2, 0)", tag, meta.SourceID)
@@ -134,8 +226,8 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 		return err
 	}
 	slog.Info("create partition succeed, retry insert", "sql", sql)
-	_, err = s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time) VALUES ($1, $2, $3, $4, $5, $6)",
-		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime)
+	_, err = s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time, integrity_status) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime, int16(meta.IntegrityStatus))
 	if err != nil {
 		slog.Error("insert meta failed", "error", err)
 		return err
@@ -145,11 +237,11 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 func (s *DB) GetMetaLocalPathNULL(source string, maxSize int) []models.ImageMeta {
 	// 读取没有本地路径的图片, 最多返回maxSize条数据, 使用post_time 倒序排列
 	rows, err := s.db.Query(
-		`SELECT id, tags, image_url, post_time, source_id 
-			FROM images 
-			WHERE source_id = $1 
+		`SELECT id, tags, image_url, post_time, source_id
+			FROM images
+			WHERE source_id = $1
 				AND local_path IS NULL
-			ORDER BY post_time 
+			ORDER BY post_time
 			DESC LIMIT $2`, source, maxSize)
 	if err != nil {
 		slog.Error("query failed", "error", err)
@@ -164,6 +256,8 @@ func (s *DB) GetMetaLocalPathNULL(source string, maxSize int) []models.ImageMeta
 			slog.Error("scan failed", "error", err)
 			return nil
 		}
+		// 设置默认值为unknown
+		meta.IntegrityStatus = models.ImageIntegrityUnknown
 		metas = append(metas, meta)
 	}
 	return metas
@@ -192,7 +286,7 @@ func (s *DB) GetService(serviceID interfaces.ServiceID) (interfaces.IService, er
 func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error) {
 	// 分页查询核心SQL（带封面信息）
 	pageQuery := `
-    SELECT 
+    SELECT
         t.tag,
         t.count,
         i.id AS cover_id,
@@ -202,10 +296,10 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
         i.post_time AS cover_post_time,
         i.source_id AS cover_source_id
     FROM tags t
-    LEFT JOIN images i 
+    LEFT JOIN images i
         ON t.cover = i.id
         AND i.source_id = t.source_id
-    WHERE 
+    WHERE
         t.source_id = $1
         AND t.cover IS NOT NULL
         AND t.tag NOT LIKE 'group_%'
@@ -274,7 +368,7 @@ func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, lim
 	var err error
 	if len(tags) == 0 {
 		rows, err = s.db.Query(`WITH filtered_images AS (
-			SELECT id, tags, image_url, post_time, source_id, local_path
+			SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
 			FROM images
 			WHERE source_id = $1
 			AND local_path IS NOT NULL
@@ -283,14 +377,14 @@ func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, lim
 			SELECT COUNT(*) AS total_items
 			FROM filtered_images
 		)
-		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, t.total_items
+		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, i.integrity_status, t.total_items
 		FROM filtered_images i
 		CROSS JOIN total_count t
 		ORDER BY i.post_time DESC
 		LIMIT $2 OFFSET $3;`, source, limit, offset)
 	} else {
 		rows, err = s.db.Query(`WITH filtered_images AS (
-			SELECT id, tags, image_url, post_time, source_id, local_path
+			SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
 			FROM images
 			WHERE source_id = $1
 			AND local_path IS NOT NULL
@@ -300,7 +394,7 @@ func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, lim
 			SELECT COUNT(*) AS total_items
 			FROM filtered_images
 		)
-		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, t.total_items
+		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, i.integrity_status, t.total_items
 		FROM filtered_images i
 		CROSS JOIN total_count t
 		ORDER BY i.post_time DESC
@@ -317,10 +411,63 @@ func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, lim
 	}
 	for rows.Next() {
 		meta := models.ImageMeta{}
-		err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.PostTime, &meta.SourceID, &meta.LocalPath, &imageList.TotalCount)
+		var status sql.NullInt16
+		err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.PostTime, &meta.SourceID, &meta.LocalPath, &status, &imageList.TotalCount)
 		if err != nil {
 			slog.Error("scan failed", "error", err)
 			return nil, err
+		}
+		// 处理NULL值，NULL也视为unknown
+		if status.Valid {
+			meta.IntegrityStatus = models.ImageIntegrityStatus(status.Int16)
+		} else {
+			meta.IntegrityStatus = models.ImageIntegrityUnknown
+		}
+		imageList.ImageList = append(imageList.ImageList, meta)
+	}
+	return imageList, nil
+}
+
+// ListDownloadedImagesWithUnknownStatus 只查询未检测过的图片（integrity_status为unknown或NULL）
+func (s *DB) ListDownloadedImagesWithUnknownStatus(source string, maxSize int) (*models.ImageList, error) {
+	rows, err := s.db.Query(`WITH filtered_images AS (
+		SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
+		FROM images
+		WHERE source_id = $1
+		AND local_path IS NOT NULL
+		AND local_path != ''
+		AND (integrity_status = 0 OR integrity_status IS NULL)
+		ORDER BY post_time DESC
+		LIMIT $2
+	)
+	SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, i.integrity_status,
+		(SELECT COUNT(*) FROM filtered_images) as total_items
+	FROM filtered_images i
+	ORDER BY i.post_time DESC;`, source, maxSize)
+
+	if err != nil {
+		slog.Error("query failed", "error", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	imageList := &models.ImageList{
+		ImageList:  make([]models.ImageMeta, 0),
+		TotalCount: 0,
+	}
+	for rows.Next() {
+		meta := models.ImageMeta{}
+		var status sql.NullInt16
+		err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.PostTime, &meta.SourceID, &meta.LocalPath, &status, &imageList.TotalCount)
+		if err != nil {
+			slog.Error("scan failed", "error", err)
+			return nil, err
+		}
+		// 处理NULL值，NULL也视为unknown
+		if status.Valid {
+			meta.IntegrityStatus = models.ImageIntegrityStatus(status.Int16)
+		} else {
+			meta.IntegrityStatus = models.ImageIntegrityUnknown
 		}
 		imageList.ImageList = append(imageList.ImageList, meta)
 	}
@@ -328,8 +475,8 @@ func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, lim
 }
 func (s *DB) GetImageMeta(source string, id string) (*models.ImageMeta, error) {
 	rows, err := s.db.Query(`
-	SELECT id, tags, image_url, post_time, source_id, local_path
-	images
+	SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
+	FROM images
 	WHERE source_id = $1
 	AND id = $2;`, source, id)
 	if err != nil {
@@ -339,10 +486,17 @@ func (s *DB) GetImageMeta(source string, id string) (*models.ImageMeta, error) {
 	defer rows.Close()
 	if rows.Next() {
 		var meta models.ImageMeta
-		err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.PostTime, &meta.SourceID, &meta.LocalPath)
+		var status sql.NullInt16
+		err = rows.Scan(&meta.ID, pq.Array(&meta.Tags), &meta.ImageURL, &meta.PostTime, &meta.SourceID, &meta.LocalPath, &status)
 		if err != nil {
 			slog.Error("scan failed", "error", err)
 			return nil, err
+		}
+		// 处理NULL值，NULL也视为unknown
+		if status.Valid {
+			meta.IntegrityStatus = models.ImageIntegrityStatus(status.Int16)
+		} else {
+			meta.IntegrityStatus = models.ImageIntegrityUnknown
 		}
 		return &meta, nil
 	}
@@ -418,6 +572,21 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 	}
 
 	logger.Info("image record deleted successfully")
+	return nil
+}
+
+// UpdateImageIntegrityStatus 更新图片完整性状态
+func (s *DB) UpdateImageIntegrityStatus(source string, id string, status models.ImageIntegrityStatus) error {
+	logger := slog.With("source", source, "id", id, "status", status)
+
+	_, err := s.db.Exec("UPDATE images SET integrity_status = $1 WHERE source_id = $2 AND id = $3",
+		int16(status), source, id)
+	if err != nil {
+		logger.Error("failed to update integrity status", "error", err)
+		return fmt.Errorf("failed to update integrity status: %w", err)
+	}
+
+	logger.Info("integrity status updated successfully")
 	return nil
 }
 

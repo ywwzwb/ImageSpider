@@ -87,74 +87,53 @@ func (f *FileIntegrityChecker) scanForSourceID(sourceID string) {
 	logger := slog.With("sourceID", sourceID)
 	logger.Info("start file integrity scanning")
 	for {
-		// 获取需要扫描的图片
-		offset := int64(0)
-		for {
+		select {
+		case <-f.stopChain:
+			goto exit
+		default:
+		}
+
+		// 使用 ListDownloadedImagesWithUnknownStatus 获取未检测过的已下载图片
+		result, err := f.dbService.ListDownloadedImagesWithUnknownStatus(sourceID, scanBatchSize)
+		if err != nil {
+			logger.Error("failed to list downloaded images", "error", err)
+			select {
+			case <-f.stopChain:
+				goto exit
+			case <-time.After(scanInterval):
+				continue
+			}
+		}
+
+		if len(result.ImageList) == 0 {
+			logger.Info("no more unverified images, waiting before next check")
+			select {
+			case <-f.stopChain:
+				goto exit
+			case <-time.After(scanInterval):
+				continue
+			}
+		}
+
+		logger.Info("scanning batch of images", "batch_size", len(result.ImageList), "remaining", result.TotalCount)
+
+		for _, meta := range result.ImageList {
 			select {
 			case <-f.stopChain:
 				goto exit
 			default:
 			}
 
-			// 使用 ListDownloadedImageOfTags 获取已下载的图片
-			result, err := f.dbService.ListDownloadedImageOfTags(sourceID, nil, offset, scanBatchSize)
-			if err != nil {
-				logger.Error("failed to list downloaded images", "error", err)
-				select {
-				case <-f.stopChain:
-					goto exit
-				case <-time.After(scanInterval):
-					continue
-				}
-			}
-
-			if len(result.ImageList) == 0 {
-				logger.Info("no more data, check later")
-				select {
-				case <-f.stopChain:
-					goto exit
-				case <-time.After(scanInterval):
-					goto restart
-				}
-			}
-
-			for _, meta := range result.ImageList {
-				select {
-				case <-f.stopChain:
-					goto exit
-				default:
-				}
-
-				if meta.LocalPath == nil || *meta.LocalPath == "" {
-					continue
-				}
-
-				filePath := path.Join(f.app.GetAppConfig().ImageDir, *meta.LocalPath)
-				f.checkAndRemoveCorruptedFile(filePath, meta, sourceID)
-			}
-
-			offset += int64(len(result.ImageList))
-
-			// 如果已经扫描完所有数据，重新开始一轮扫描
-			if offset >= int64(result.TotalCount) {
-				logger.Info("finished scanning all images, restarting")
-				select {
-				case <-f.stopChain:
-					goto exit
-				case <-time.After(scanInterval):
-					goto restart
-				}
-			}
-
-			select {
-			case <-f.stopChain:
-				goto exit
-			case <-time.After(time.Second):
+			if meta.LocalPath == nil || *meta.LocalPath == "" {
 				continue
 			}
+
+			filePath := path.Join(f.app.GetAppConfig().ImageDir, *meta.LocalPath)
+			f.checkAndRemoveCorruptedFile(filePath, meta, sourceID)
 		}
-	restart:
-		offset = 0
+
+		// 扫描完一批后，继续获取下一批（状态已更新，不会重复扫描）
+		logger.Debug("batch completed, fetching next batch")
 	}
 exit:
 	f.stopFinishChain <- true
@@ -171,17 +150,25 @@ func (f *FileIntegrityChecker) checkAndRemoveCorruptedFile(filePath string, meta
 
 	// 验证图片完整性
 	if err := f.validateImage(filePath); err != nil {
-		logger.Error("file is corrupted, removing", "error", err)
+		logger.Error("file is corrupted, marking as bad", "error", err)
 
-		// 调用DB插件的DeleteImageFile接口删除图片文件（包括缩略图），并将local_path设为空
-		if err := f.dbService.DeleteImageFile(sourceID, meta.ID); err != nil {
-			logger.Error("failed to delete corrupted image file", "error", err)
+		// 更新图片完整性状态为 bad
+		if err := f.dbService.UpdateImageIntegrityStatus(sourceID, meta.ID, models.ImageIntegrityBad); err != nil {
+			logger.Error("failed to update integrity status", "error", err)
 			return
 		}
 
-		logger.Info("corrupted file removed successfully")
+		logger.Info("corrupted file marked as bad")
 	} else {
 		logger.Debug("file is valid")
+
+		// 更新图片完整性状态为 good
+		if err := f.dbService.UpdateImageIntegrityStatus(sourceID, meta.ID, models.ImageIntegrityGood); err != nil {
+			logger.Error("failed to update integrity status", "error", err)
+			return
+		}
+
+		logger.Debug("file marked as good")
 	}
 }
 

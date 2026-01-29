@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS images (
     image_url TEXT,
     local_path TEXT,
     post_time TIMESTAMP NOT null,
+    integrity_status SMALLINT DEFAULT 0, -- 0=未知, 1=好图, -1=坏图; NULL也视为未知
     PRIMARY KEY (id, source_id, post_time)
 ) PARTITION BY LIST (source_id);
 
