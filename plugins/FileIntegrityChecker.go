@@ -173,17 +173,10 @@ func (f *FileIntegrityChecker) checkAndRemoveCorruptedFile(filePath string, meta
 	if err := f.validateImage(filePath); err != nil {
 		logger.Error("file is corrupted, removing", "error", err)
 
-		// 删除破损的文件
-		if err := os.Remove(filePath); err != nil {
-			logger.Error("failed to remove corrupted file", "error", err)
+		// 调用DB插件的DeleteImageFile接口删除图片文件（包括缩略图），并将local_path设为空
+		if err := f.dbService.DeleteImageFile(sourceID, meta.ID); err != nil {
+			logger.Error("failed to delete corrupted image file", "error", err)
 			return
-		}
-
-		// 从数据库中删除记录（设置 local_path 为 nil 或空）
-		empty := ""
-		meta.LocalPath = &empty
-		if err := f.dbService.UpdateLocalPathForMeta(meta); err != nil {
-			logger.Error("failed to update database", "error", err)
 		}
 
 		logger.Info("corrupted file removed successfully")

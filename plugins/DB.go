@@ -1,14 +1,16 @@
 package plugins
 
 import (
+	"database/sql"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"ywwzwb/imagespider/embed"
 	"ywwzwb/imagespider/interfaces"
 	"ywwzwb/imagespider/models"
 	"ywwzwb/imagespider/models/config"
-
-	"database/sql"
 
 	"github.com/lib/pq"
 )
@@ -345,4 +347,109 @@ func (s *DB) GetImageMeta(source string, id string) (*models.ImageMeta, error) {
 		return &meta, nil
 	}
 	return nil, NotFound
+}
+
+// DeleteImageFile 删除图片文件（包括缩略图），并将local_path设置为空
+func (s *DB) DeleteImageFile(source string, id string) error {
+	logger := slog.With("source", source, "id", id)
+
+	// 获取图片元数据
+	meta, err := s.GetImageMeta(source, id)
+	if err != nil {
+		logger.Error("failed to get image meta", "error", err)
+		return fmt.Errorf("failed to get image meta: %w", err)
+	}
+
+	// 如果local_path为空或nil，直接返回
+	if meta.LocalPath == nil || *meta.LocalPath == "" {
+		logger.Warn("local_path is empty, nothing to delete")
+		return nil
+	}
+
+	// 拼接完整的文件路径
+	fullPath := filepath.Join(s.app.GetAppConfig().ImageDir, *meta.LocalPath)
+
+	// 删除主文件和所有匹配的缩略图
+	if err := s.deleteImageFiles(fullPath); err != nil {
+		logger.Error("failed to delete image files", "error", err)
+		return fmt.Errorf("failed to delete image files: %w", err)
+	}
+
+	// 将local_path设置为空
+	empty := ""
+	meta.LocalPath = &empty
+	if err := s.UpdateLocalPathForMeta(*meta); err != nil {
+		logger.Error("failed to update local_path in database", "error", err)
+		return fmt.Errorf("failed to update local_path: %w", err)
+	}
+
+	logger.Info("image file deleted successfully")
+	return nil
+}
+
+// DeleteImageRecord 删除图片文件（包括缩略图）和数据库记录
+func (s *DB) DeleteImageRecord(source string, id string) error {
+	logger := slog.With("source", source, "id", id)
+
+	// 获取图片元数据
+	meta, err := s.GetImageMeta(source, id)
+	if err != nil {
+		logger.Error("failed to get image meta", "error", err)
+		return fmt.Errorf("failed to get image meta: %w", err)
+	}
+
+	// 如果local_path不为空，删除相关文件
+	if meta.LocalPath != nil && *meta.LocalPath != "" {
+		// 拼接完整的文件路径
+		fullPath := filepath.Join(s.app.GetAppConfig().ImageDir, *meta.LocalPath)
+
+		// 删除主文件和所有匹配的缩略图
+		if err := s.deleteImageFiles(fullPath); err != nil {
+			logger.Error("failed to delete image files", "error", err)
+			return fmt.Errorf("failed to delete image files: %w", err)
+		}
+	}
+
+	// 删除数据库记录
+	_, err = s.db.Exec("DELETE FROM images WHERE source_id = $1 AND id = $2", source, id)
+	if err != nil {
+		logger.Error("failed to delete database record", "error", err)
+		return fmt.Errorf("failed to delete database record: %w", err)
+	}
+
+	logger.Info("image record deleted successfully")
+	return nil
+}
+
+// deleteImageFiles 删除主文件和所有匹配的缩略图
+func (s *DB) deleteImageFiles(fullPath string) error {
+	if fullPath == "" {
+		return nil
+	}
+
+	// 提取目录和文件名（不带扩展名）
+	dir := filepath.Dir(fullPath)
+	baseName := strings.TrimSuffix(filepath.Base(fullPath), filepath.Ext(filepath.Base(fullPath)))
+
+	// 搜索所有匹配的文件（baseName*.*）
+	pattern := filepath.Join(dir, baseName+"*")
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		slog.Error("failed to glob pattern", "pattern", pattern, "error", err)
+		return err
+	}
+
+	// 删除所有匹配的文件
+	for _, file := range matches {
+		if err := os.Remove(file); err != nil {
+			// 如果文件不存在或无法删除，记录警告但不返回错误
+			if !os.IsNotExist(err) {
+				slog.Warn("failed to delete file", "file", file, "error", err)
+			}
+		} else {
+			slog.Debug("deleted file", "file", file)
+		}
+	}
+
+	return nil
 }
