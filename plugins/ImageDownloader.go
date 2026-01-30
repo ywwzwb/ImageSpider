@@ -144,7 +144,7 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6], hash)
 	imageOutputAbsolutePath := path.Join(i.app.GetAppConfig().ImageDir, imageOutputPath)
 
-	_, err := os.Stat(imageOutputAbsolutePath + ".heic")
+	_, err := os.Stat(imageOutputAbsolutePath + ".avif")
 	if err == nil {
 		logger.Info("converted file exists, save it")
 		goto save
@@ -265,9 +265,9 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	}
 	logger.Info("download success", "size", downloadedSize, "expectedSize", expectedSize)
 convert:
-	err = i.imageConvertService.ConvertHEIC(tempDownloadFilePath, imageOutputAbsolutePath+".heic")
+	err = i.imageConvertService.CompressImage(tempDownloadFilePath, imageOutputAbsolutePath+".avif")
 	if err != nil {
-		logger.Error("convert heic failed, save empty path and skip for now", "error", err)
+		logger.Error("convert avif failed, save empty path and skip for now", "error", err)
 		empty := ""
 		meta.LocalPath = &empty
 		if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
@@ -277,12 +277,12 @@ convert:
 	}
 	logger.Info("convert success, update local path")
 save:
-	_, err = os.Stat(imageOutputAbsolutePath + ".heic")
+	_, err = os.Stat(imageOutputAbsolutePath + ".avif")
 	if err != nil {
 		logger.Info("image not exists, skip")
 		return
 	}
-	imageOutputPath = imageOutputPath + ".heic"
+	imageOutputPath = imageOutputPath + ".avif"
 	meta.LocalPath = &imageOutputPath
 	if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
 		logger.Error("update local path failed", "error", err)

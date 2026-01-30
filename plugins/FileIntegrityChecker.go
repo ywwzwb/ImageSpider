@@ -2,7 +2,6 @@ package plugins
 
 import (
 	"fmt"
-	"image"
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
@@ -192,20 +191,7 @@ func (f *FileIntegrityChecker) validateImage(filePath string) error {
 		return fmt.Errorf("file is empty")
 	}
 
-	// 根据文件扩展名选择验证方式
-	ext := path.Ext(filePath)
-	if ext == ".heic" || ext == ".HEIC" {
-		// 对于HEIC格式，使用magick验证
-		return f.validateHEICImage(filePath)
-	}
-
-	// 对于其他格式，尝试解码图片
-	_, _, err = image.Decode(file)
-	if err != nil {
-		return fmt.Errorf("failed to decode image: %w", err)
-	}
-
-	return nil
+	return f.validateImageWithMagick(filePath)
 }
 
 // RunTest 运行破损检测测试
@@ -216,13 +202,12 @@ func (f *FileIntegrityChecker) RunTest() {
 		// 默认使用当前目录下的test_images文件夹
 		testDir = "./test_images"
 	}
-
 	testImages := map[string]string{
-		"bad_big.heic":    "大面积破损",
-		"bad_small.heic":  "中等面积破损",
-		"bad_little.heic": "小面积破损",
-		"good_gray.heic":  "正常图片, 纯色背景",
-		"good.heic":       "正常纹理图",
+		"bad_big.avif":    "大面积破损",
+		"bad_small.avif":  "中等面积破损",
+		"bad_little.avif": "小面积破损",
+		"good_gray.avif":  "正常图片, 纯色背景",
+		"good.avif":       "正常纹理图",
 	}
 
 	fmt.Println("=== File Integrity Checker Test ===")
@@ -231,7 +216,7 @@ func (f *FileIntegrityChecker) RunTest() {
 	allPassed := true
 	for filename, description := range testImages {
 		filePath := path.Join(testDir, filename)
-		err := f.validateHEICImage(filePath)
+		err := f.validateImageWithMagick(filePath)
 
 		// 判断期望结果：bad_开头的应该检测到破损（err != nil），good_开头的应该正常（err == nil）
 		expectedCorrupted := strings.HasPrefix(filename, "bad_")
@@ -259,8 +244,8 @@ func (f *FileIntegrityChecker) RunTest() {
 	}
 }
 
-// validateHEICImage 使用magick验证HEIC图片的完整性
-func (f *FileIntegrityChecker) validateHEICImage(filePath string) error {
+// validateImageWithMagick 使用magick验证图片的完整性
+func (f *FileIntegrityChecker) validateImageWithMagick(filePath string) error {
 	// 使用magick identify验证图片完整性
 	cmd := exec.Command("magick", "identify", "-format", "%w %h", filePath)
 	var errOut strings.Builder

@@ -53,7 +53,7 @@ func (i *ImageConvert) GetService(serviceID interfaces.ServiceID) (interfaces.IS
 	}
 	return nil, fmt.Errorf("service not found")
 }
-func (i *ImageConvert) ConvertHEIC(input, output string) error {
+func (i *ImageConvert) CompressImage(input, output string) error {
 	logger := slog.With("input", input, "output", output)
 	outputDir := path.Dir(output)
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
@@ -70,7 +70,7 @@ func (i *ImageConvert) ConvertHEIC(input, output string) error {
 			return err
 		}
 	}
-	thumbnailPath := strings.Replace(output, ".heic", "@320.heic", 1)
+	thumbnailPath := strings.Replace(output, ".avif", "@320.avif", 1)
 	if _, err := os.Stat(thumbnailPath); err != nil {
 		cmd := exec.Command("magick", input, "-resize", "320x", thumbnailPath)
 		var errOut strings.Builder
