@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"ywwzwb/imagespider/embed"
 	"ywwzwb/imagespider/interfaces"
 
 	"github.com/gin-gonic/gin"
@@ -57,10 +58,12 @@ func (s *API) Load(app interfaces.IApplication) error {
 			slog.Error("failed to listen", "error", err)
 		}
 	}()
-	s.router.GET("/:sourceid/tags", s.listAllTags)
-	s.router.GET("/:sourceid/images", s.listImages)
-	s.router.GET("/:sourceid/image/:id", s.getImage)
+	api := s.router.Group("api")
+	api.GET("/:sourceid/tags", s.listAllTags)
+	api.GET("/:sourceid/images", s.listImages)
+	api.GET("/:sourceid/image/:id", s.getImage)
 	s.router.Static("/image", s.app.GetAppConfig().ImageDir)
+	s.router.StaticFS("/www", http.FS(embed.WebContent))
 	return nil
 }
 func (s *API) Unload() {
