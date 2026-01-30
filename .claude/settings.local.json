@@ -5,7 +5,11 @@
       "Bash(go build:*)",
       "Bash(go get:*)",
       "Bash(ln:*)",
-      "Bash(./imagespider:*)"
+      "Bash(tree:*)",
+      "Bash(git diff:*)",
+      "Bash(npm install)",
+      "Bash(npm run build)",
+      "Bash(chmod:*)"
     ]
   }
 }

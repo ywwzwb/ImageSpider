@@ -9,6 +9,7 @@ import (
 	"time"
 	"ywwzwb/imagespider/embed"
 	"ywwzwb/imagespider/interfaces"
+	"ywwzwb/imagespider/models"
 
 	"github.com/gin-gonic/gin"
 	sloggin "github.com/samber/slog-gin"
@@ -59,9 +60,13 @@ func (s *API) Load(app interfaces.IApplication) error {
 		}
 	}()
 	api := s.router.Group("api")
+	api.GET("/sources", s.listSources)
 	api.GET("/:sourceid/tags", s.listAllTags)
 	api.GET("/:sourceid/images", s.listImages)
 	api.GET("/:sourceid/image/:id", s.getImage)
+	api.DELETE("/:sourceid/images", s.batchDeleteImages)
+	api.POST("/:sourceid/images/redownload", s.batchRedownloadImages)
+	api.POST("/:sourceid/tags/:tag/cover", s.setTagCover)
 	s.router.Static("/image", s.app.GetAppConfig().ImageDir)
 	s.router.StaticFS("/www", http.FS(embed.WebContent))
 	return nil
@@ -104,7 +109,19 @@ func (s *API) listImages(c *gin.Context) {
 		limit = v
 	}
 	tags := c.QueryArray("tag")
-	if imagList, err := s.dbService.ListDownloadedImage(sourceid, tags, offset, limit); err == nil {
+
+	// Parse integrity_status filter
+	var status []models.ImageIntegrityStatus
+	if statusStr := c.QueryArray("integrity_status"); len(statusStr) > 0 {
+		status = make([]models.ImageIntegrityStatus, 0, len(statusStr))
+		for _, s := range statusStr {
+			if val, err := strconv.Atoi(s); err == nil {
+				status = append(status, models.ImageIntegrityStatus(val))
+			}
+		}
+	}
+
+	if imagList, err := s.dbService.ListDownloadedImage(sourceid, tags, status, offset, limit); err == nil {
 		c.JSON(http.StatusOK, imagList)
 	} else {
 		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
@@ -120,4 +137,74 @@ func (s *API) getImage(c *gin.Context) {
 	} else {
 		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	}
+}
+func (s *API) listSources(c *gin.Context) {
+	sources := make([]string, 0, len(s.app.GetAppConfig().Spiders))
+	for sourceID := range s.app.GetAppConfig().Spiders {
+		sources = append(sources, sourceID)
+	}
+	c.JSON(http.StatusOK, map[string]any{"sources": sources})
+}
+func (s *API) batchDeleteImages(c *gin.Context) {
+	sourceid := c.Param("sourceid")
+	var request struct {
+		IDs []string `json:"ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request body"})
+		return
+	}
+	deletedCount := 0
+	for _, id := range request.IDs {
+		if err := s.dbService.DeleteImageFile(sourceid, id); err != nil {
+			slog.Error("Failed to delete image file", "id", id, "error", err)
+			continue
+		}
+		if err := s.dbService.DeleteImageRecord(sourceid, id); err != nil {
+			slog.Error("Failed to delete image record", "id", id, "error", err)
+			continue
+		}
+		deletedCount++
+	}
+	c.JSON(http.StatusOK, map[string]any{"deleted": deletedCount, "total": len(request.IDs)})
+}
+func (s *API) batchRedownloadImages(c *gin.Context) {
+	sourceid := c.Param("sourceid")
+	var request struct {
+		IDs []string `json:"ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request body"})
+		return
+	}
+	redownloadCount := 0
+	for _, id := range request.IDs {
+		if err := s.dbService.DeleteImageFile(sourceid, id); err != nil {
+			slog.Error("Failed to delete image file for redownload", "id", id, "error", err)
+			continue
+		}
+		if err := s.dbService.UpdateImageIntegrityStatus(sourceid, id, models.ImageIntegrityUnknown); err != nil {
+			slog.Error("Failed to update image status for redownload", "id", id, "error", err)
+			continue
+		}
+		redownloadCount++
+	}
+	c.JSON(http.StatusOK, map[string]any{"redownloaded": redownloadCount, "total": len(request.IDs)})
+}
+func (s *API) setTagCover(c *gin.Context) {
+	sourceid := c.Param("sourceid")
+	tag := c.Param("tag")
+	var request struct {
+		ImageID string `json:"imageId" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request body"})
+		return
+	}
+	if err := s.dbService.SetTagCover(sourceid, tag, request.ImageID); err != nil {
+		slog.Error("Failed to set tag cover", "tag", tag, "imageId", request.ImageID, "error", err)
+		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"success": true})
 }
