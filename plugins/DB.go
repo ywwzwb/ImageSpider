@@ -371,9 +371,10 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 	}, nil
 }
 
-func (s *DB) ListDownloadedImageOfTags(source string, tags []string, offset, limit int64) (*models.ImageList, error) {
+func (s *DB) ListDownloadedImage(source string, tags []string, status []models.ImageIntegrityStatus, offset, limit int64) (*models.ImageList, error) (*models.ImageList, error) {
 	var rows *sql.Rows
 	var err error
+	//TODO: 实现按照 status 筛选的功能
 	if len(tags) == 0 {
 		rows, err = s.db.Query(`WITH filtered_images AS (
 			SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
