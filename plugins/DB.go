@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"ywwzwb/imagespider/embed"
 	"ywwzwb/imagespider/interfaces"
@@ -205,10 +206,15 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 
 	_, err := s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time, integrity_status) VALUES ($1, $2, $3, $4, $5, $6, $7)",
 		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime, int16(meta.IntegrityStatus))
-	for tag := range meta.Tags {
+	for _, tag := range meta.Tags {
 		// 插入 tag 信息
 		s.db.Exec("INSERT INTO tags (tag, source_id, count) VALUES ($1, $2, 0)", tag, meta.SourceID)
 		s.db.Exec("UPDATE tags SET count = count + 1 WHERE tag = $1 AND source_id = $2", tag, meta.SourceID)
+
+		// 刷新标签封面（如果还没有封面）
+		if meta.LocalPath != nil && *meta.LocalPath != "" {
+			s.refreshTagCover(meta.SourceID, tag)
+		}
 	}
 	if err == nil {
 		return nil
@@ -269,9 +275,11 @@ func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
 		return err
 	}
 	if meta.LocalPath != nil && len(*meta.LocalPath) != 0 {
-		for tag := range meta.Tags {
+		for _, tag := range meta.Tags {
 			// 插入 cover 信息
 			s.db.Exec("UPDATE tags SET cover = $1 WHERE cover IS NULL AND tag = $2 AND source_id = $3", meta.ID, tag, meta.SourceID)
+			// 刷新标签封面（如果还没有封面）
+			s.refreshTagCover(meta.SourceID, tag)
 		}
 	}
 	return nil
@@ -529,6 +537,12 @@ func (s *DB) DeleteImageFile(source string, id string) error {
 		return fmt.Errorf("failed to delete image files: %w", err)
 	}
 
+	// 检查并刷新相关标签的封面（如果当前图片是封面）
+	if err := s.resetTagCoversOfImagePath(source, *meta.LocalPath); err != nil {
+		logger.Error("failed to refresh tag covers", "error", err)
+		// 不返回错误，继续执行
+	}
+
 	// 将local_path设置为空
 	empty := ""
 	meta.LocalPath = &empty
@@ -551,9 +565,23 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 		logger.Error("failed to get image meta", "error", err)
 		return fmt.Errorf("failed to get image meta: %w", err)
 	}
-
+	for _, tag := range meta.Tags {
+		// 更新相关标签的计数（减1）
+		if _, err := s.db.Exec("UPDATE tags SET count = count - 1 WHERE tag = $1 AND source_id = $2", tag, meta.SourceID); err != nil {
+			logger.Error("failed to update tag counts", "error", err)
+		}
+		// 删除没有图片的tag
+		if _, err := s.db.Exec("DELETE tags WHERE count = 0"); err != nil {
+			logger.Error("failed to clear empty tag", "error", err)
+		}
+	}
 	// 如果local_path不为空，删除相关文件
 	if meta.LocalPath != nil && *meta.LocalPath != "" {
+		// 检查并刷新相关标签的封面（如果当前图片是封面）
+		if err := s.resetTagCoversOfImagePath(source, id); err != nil {
+			logger.Error("failed to refresh tag covers", "error", err)
+			// 不返回错误，继续执行
+		}
 		// 拼接完整的文件路径
 		fullPath := filepath.Join(s.app.GetAppConfig().ImageDir, *meta.LocalPath)
 
@@ -563,7 +591,6 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 			return fmt.Errorf("failed to delete image files: %w", err)
 		}
 	}
-
 	// 删除数据库记录
 	_, err = s.db.Exec("DELETE FROM images WHERE source_id = $1 AND id = $2", source, id)
 	if err != nil {
@@ -572,6 +599,127 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 	}
 
 	logger.Info("image record deleted successfully")
+	return nil
+}
+
+// refreshTagCover 刷新标签封面，如果标签还没有封面，则从该标签的图片中选择一张作为封面
+func (s *DB) refreshTagCover(source string, tag string) error {
+	logger := slog.With("source", source, "tag", tag)
+
+	// 检查标签是否已经有封面
+	var existingCover sql.NullString
+	err := s.db.QueryRow("SELECT cover FROM tags WHERE source_id = $1 AND tag = $2", source, tag).Scan(&existingCover)
+	if err != nil {
+		logger.Error("failed to query tag cover", "error", err)
+		return err
+	}
+
+	// 如果已经有封面，不需要刷新
+	if existingCover.Valid && existingCover.String != "" {
+		logger.Debug("tag already has cover, skipping refresh")
+		return nil
+	}
+
+	// 从该标签的图片中选择一张作为封面（优先选择有本地路径的图片）
+	var coverImagePath string
+	err = s.db.QueryRow(`
+		SELECT local_path FROM images
+		WHERE source_id = $1
+		AND tags @> ARRAY[$2]
+		AND local_path IS NOT NULL
+		AND local_path != ''
+		ORDER BY post_time DESC
+		LIMIT 1
+	`, source, tag).Scan(&coverImagePath)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			logger.Debug("no suitable image found for tag cover")
+			return nil
+		}
+		logger.Error("failed to query cover image", "error", err)
+		return err
+	}
+
+	// 更新标签封面
+	_, err = s.db.Exec("UPDATE tags SET cover = $1 WHERE source_id = $2 AND tag = $3", coverImagePath, source, tag)
+	if err != nil {
+		logger.Error("failed to update tag cover", "error", err)
+		return err
+	}
+
+	logger.Info("updated tag cover", "cover_image_path", coverImagePath)
+	return nil
+}
+
+// resetTagCoversOfImagePath 检查图片相关的所有标签，刷新封面（如果当前图片是封面）
+func (s *DB) resetTagCoversOfImagePath(source string, imagePath string) error {
+	logger := slog.With("source", source, "image path", imagePath)
+
+	// 查询哪些标签引用了这张图片作为封面
+	rows, err := s.db.Query("SELECT tag FROM tags WHERE source_id = $1 AND cover = $2", source, imagePath)
+	if err != nil {
+		logger.Error("failed to query tags using image as cover", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	var tagsToRefresh []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			logger.Error("failed to scan tag", "error", err)
+			continue
+		}
+		tagsToRefresh = append(tagsToRefresh, tag)
+	}
+
+	// 为每个需要刷新的标签选择新的封面
+	for _, tag := range tagsToRefresh {
+		if _, err = s.db.Exec("UPDATE tags SET cover = '' WHERE source_id = $2 AND tag = $3", source, tag); err != nil {
+			logger.Error("failed to clear old tag cover", "tag", tag, "error", err)
+			continue
+		}
+		if err := s.refreshTagCover(source, tag); err != nil {
+			logger.Error("failed to refresh tag cover", "tag", tag, "error", err)
+			// 继续处理其他标签，不返回错误
+		}
+	}
+
+	logger.Info("refreshed tag covers", "count", len(tagsToRefresh))
+	return nil
+}
+
+// SetTagCover 手动设置标签封面
+func (s *DB) SetTagCover(source string, tag string, imageID string) error {
+	logger := slog.With("source", source, "tag", tag, "imageID", imageID)
+
+	// 检查图片是否存在且有本地路径
+	meta, err := s.GetImageMeta(source, imageID)
+	if err != nil {
+		logger.Error("failed to get image meta", "error", err)
+		return fmt.Errorf("failed to get image meta: %w", err)
+	}
+
+	// 检查图片是否已下载
+	if meta.LocalPath == nil || *meta.LocalPath == "" {
+		logger.Error("image has not been downloaded yet")
+		return fmt.Errorf("image has not been downloaded yet")
+	}
+
+	// 检查图片是否包含该标签
+	if !slices.Contains(meta.Tags, tag) {
+		logger.Error("image does not belong to the specified tag")
+		return fmt.Errorf("image does not belong to the specified tag")
+	}
+	// 更新标签封面
+	_, err = s.db.Exec("UPDATE tags SET cover = $1 WHERE source_id = $2 AND tag = $3", meta.LocalPath, source, tag)
+	if err != nil {
+		logger.Error("failed to set tag cover", "error", err)
+		return fmt.Errorf("failed to set tag cover: %w", err)
+	}
+
+	logger.Info("tag cover set successfully")
 	return nil
 }
 

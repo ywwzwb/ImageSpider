@@ -20,4 +20,5 @@ type IDBService interface {
 	DeleteImageFile(source string, id string) error
 	DeleteImageRecord(source string, id string) error
 	UpdateImageIntegrityStatus(source string, id string, status models.ImageIntegrityStatus) error
+	SetTagCover(source string, tag string, imageID string) error
 }
