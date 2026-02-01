@@ -82,7 +82,7 @@ func (d *DataChecker) checkData(sourceID string) {
 				goto exit
 			default:
 			}
-			metas, err := d.dbService.ListDownloadedImage(sourceID, nil, int64(offset), int64(d.app.GetAppConfig().DataCheckerConfig.BatchSize))
+			metas, err := d.dbService.ListDownloadedImage(sourceID, nil, nil, int64(offset), int64(d.app.GetAppConfig().DataCheckerConfig.BatchSize))
 			if err != nil {
 				slog.Error("list downloaded image failed", "error", err)
 				break
