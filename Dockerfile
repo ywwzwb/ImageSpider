@@ -8,7 +8,7 @@ FROM node:24-alpine AS frontend-builder
 WORKDIR /frontend
 COPY frontend/ ./
 # 编译
-RUN npm install && npm run build
+RUN npm install && npm run build && ls -l /frontend && ls -l /embed && ls -l /embed/www
 
 RUN 
 
@@ -27,7 +27,7 @@ WORKDIR /go/src/imagespider/
 # 复制 Go 源码和前端编译产物
 COPY . .
 # 从前端编译阶段复制构建产物
-COPY --from=frontend-builder /frontend/dist ./embed/www
+COPY --from=frontend-builder /embed/www ./embed/www
 RUN go mod download && \
     go build -o imagespider
 
@@ -40,7 +40,7 @@ FROM alpine:latest
 
 RUN \
     # sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories &&\
-    # apk update && apk add \
+    apk update && apk add \
     libheif-dev \
     x265-dev \
     jpeg-dev \
