@@ -372,48 +372,62 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 }
 
 func (s *DB) ListDownloadedImage(source string, tags []string, status []models.ImageIntegrityStatus, offset, limit int64) (*models.ImageList, error) {
-	var rows *sql.Rows
-	var err error
-	//TODO: 实现按照 status 筛选的功能
-	if len(tags) == 0 {
-		rows, err = s.db.Query(`WITH filtered_images AS (
-			SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
-			FROM images
-			WHERE source_id = $1
-			AND local_path IS NOT NULL
-			AND local_path != ''
-		), total_count AS (
-			SELECT COUNT(*) AS total_items
-			FROM filtered_images
-		)
-		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, i.integrity_status, t.total_items
-		FROM filtered_images i
-		CROSS JOIN total_count t
-		ORDER BY i.post_time DESC
-		LIMIT $2 OFFSET $3;`, source, limit, offset)
-	} else {
-		rows, err = s.db.Query(`WITH filtered_images AS (
-			SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
-			FROM images
-			WHERE source_id = $1
-			AND local_path IS NOT NULL
-			AND local_path != ''
-			AND tags @> $2
-		), total_count AS (
-			SELECT COUNT(*) AS total_items
-			FROM filtered_images
-		)
-		SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, i.integrity_status, t.total_items
-		FROM filtered_images i
-		CROSS JOIN total_count t
-		ORDER BY i.post_time DESC
-		LIMIT $3 OFFSET $4;`, source, pq.Array(tags), limit, offset)
+	// 构建动态SQL查询
+	var conditions []string
+	var args []interface{}
+	argIndex := 1
+
+	// 基础条件：source_id 和 local_path 不为空
+	conditions = append(conditions, fmt.Sprintf("source_id = $%d", argIndex))
+	args = append(args, source)
+	argIndex++
+
+	conditions = append(conditions, "local_path IS NOT NULL")
+	conditions = append(conditions, "local_path != ''")
+
+	// 如果指定了tags，添加tags筛选条件
+	if len(tags) > 0 {
+		conditions = append(conditions, fmt.Sprintf("tags @> $%d", argIndex))
+		args = append(args, pq.Array(tags))
+		argIndex++
 	}
+
+	// 如果指定了status，添加status筛选条件
+	if len(status) > 0 {
+		// 将status转换为int16数组
+		statusInts := make([]int16, len(status))
+		for i, s := range status {
+			statusInts[i] = int16(s)
+		}
+		conditions = append(conditions, fmt.Sprintf("integrity_status = ANY($%d)", argIndex))
+		args = append(args, pq.Array(statusInts))
+		argIndex++
+	}
+
+	// 构建完整的SQL查询
+	sqlQuery := fmt.Sprintf(`WITH filtered_images AS (
+		SELECT id, tags, image_url, post_time, source_id, local_path, integrity_status
+		FROM images
+		WHERE %s
+	), total_count AS (
+		SELECT COUNT(*) AS total_items
+		FROM filtered_images
+	)
+	SELECT i.id, i.tags, i.image_url, i.post_time, i.source_id, i.local_path, i.integrity_status, t.total_items
+	FROM filtered_images i
+	CROSS JOIN total_count t
+	ORDER BY i.post_time DESC
+	LIMIT $%d OFFSET $%d`, strings.Join(conditions, " AND "), argIndex, argIndex+1)
+
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(sqlQuery, args...)
 	if err != nil {
-		slog.Error("query failed", "error", err)
+		slog.Error("query failed", "error", err, "sql", sqlQuery)
 		return nil, err
 	}
 	defer rows.Close()
+
 	imageList := &models.ImageList{
 		ImageList:  make([]models.ImageMeta, 0),
 		TotalCount: 0,
