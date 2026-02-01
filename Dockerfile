@@ -3,7 +3,7 @@
 FROM node:24-alpine AS frontend-builder
 
 # 安装 npm 依赖
-RUN npm config set registry https://registry.npm.taobao.org
+# RUN npm config set registry https://registry.npm.taobao.org
 
 WORKDIR /frontend
 COPY frontend/ ./
@@ -17,8 +17,8 @@ FROM golang:1.23-alpine AS backend-builder
 
 
 RUN \
-    go env -w GOPROXY=https://goproxy.cn,direct,direct && \
-    sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories && \
+    # go env -w GOPROXY=https://goproxy.cn,direct,direct && \
+    # sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories && \
     go env -w CGO_ENABLED='0' && \
     apk update && apk add git
 
@@ -39,8 +39,8 @@ FROM alpine:latest
 
 
 RUN \
-    sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories &&\
-    apk update && apk add \
+    # sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories &&\
+    # apk update && apk add \
     libheif-dev \
     x265-dev \
     jpeg-dev \
