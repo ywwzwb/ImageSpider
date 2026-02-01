@@ -3,15 +3,14 @@
 FROM node:20-alpine AS frontend-builder
 
 # 安装 npm 依赖
-RUN npm config set registry https://registry.npm.taobao.org
+# RUN npm config set registry https://registry.npm.taobao.org
 
 WORKDIR /frontend
-COPY frontend/package*.json ./
-RUN npm install
-
-# 复制前端源代码并编译
 COPY frontend/ ./
-RUN npm run build
+# 编译
+RUN npm install && npm run build
+
+RUN 
 
 # 第二阶段：编译 Go 后端
 FROM golang:1.23-alpine AS backend-builder
