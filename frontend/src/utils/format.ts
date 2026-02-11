@@ -54,7 +54,8 @@ export function getThumbnailPath(imagePath: string | null, size = 320): string |
   return `/image/${name}@${size}${ext}`
 }
 
-export function truncateText(text: string, maxLength = 50): string {
+export function truncateText(text: string | null | undefined, maxLength = 50): string {
+  if (!text) return ''
   if (text.length <= maxLength) return text
   return text.substring(0, maxLength) + '...'
 }

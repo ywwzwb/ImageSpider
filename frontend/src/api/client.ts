@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const client = axios.create({
-  baseURL: (import.meta as any).env?.PROD ? '' : '/api',
+  baseURL: '/api',
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -9,7 +9,7 @@ const client = axios.create({
 })
 
 client.interceptors.response.use(
-  (response) => response,
+  (response) => response.data,
   (error) => {
     console.error('API Error:', error)
     return Promise.reject(error)

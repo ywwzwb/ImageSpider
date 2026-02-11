@@ -11,6 +11,7 @@ import (
 	"ywwzwb/imagespider/interfaces"
 	"ywwzwb/imagespider/models"
 
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	sloggin "github.com/samber/slog-gin"
 )
@@ -48,6 +49,7 @@ func (s *API) Load(app interfaces.IApplication) error {
 	}
 	s.dbService = dbService.(interfaces.IDBService)
 	s.router = gin.Default()
+	s.router.Use(gzip.Gzip(gzip.DefaultCompression))
 	s.router.Use(sloggin.New(slog.Default()))
 	s.server = &http.Server{
 		Addr:    ":" + strconv.FormatInt(int64(app.GetAppConfig().APIConfig.Port), 10),
@@ -68,7 +70,17 @@ func (s *API) Load(app interfaces.IApplication) error {
 	api.POST("/:sourceid/images/redownload", s.batchRedownloadImages)
 	api.POST("/:sourceid/tags/:tag/cover", s.setTagCover)
 	s.router.Static("/image", s.app.GetAppConfig().ImageDir)
-	s.router.StaticFS("/www", http.FS(embed.WebContent))
+	// 自定义处理 /www 路径，解决静态文件服务不会自动加载 index.html 的问题
+	// s.router.GET("/www", func(c *gin.Context) {
+	// 	c.Header("Content-Type", "text/html; charset=utf-8")
+	// 	data, err := embed.WebContent.ReadFile("index.html")
+	// 	if err != nil {
+	// 		c.String(http.StatusNotFound, "index.html not found")
+	// 		return
+	// 	}
+	// 	c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	// })
+	s.router.StaticFS("/www/", http.FS(embed.WebContent))
 	return nil
 }
 func (s *API) Unload() {

@@ -29,7 +29,13 @@ cd "$SCRIPT_DIR"
 
 # 编译前端
 build_frontend() {
-    echo_info "开始编译前端..."
+    local debug_mode=${1:-false}
+
+    if [ "$debug_mode" = "true" ]; then
+        echo_info "开始编译前端 (Debug 模式)..."
+    else
+        echo_info "开始编译前端 (Release 模式)..."
+    fi
 
     if [ ! -d "frontend" ]; then
         echo_error "frontend 目录不存在"
@@ -45,8 +51,13 @@ build_frontend() {
     fi
 
     # 编译前端
-    echo_info "编译前端代码..."
-    npm run build
+    if [ "$debug_mode" = "true" ]; then
+        echo_info "编译前端代码 (不压缩、生成 sourcemap)..."
+        npm run build:debug
+    else
+        echo_info "编译前端代码 (压缩优化)..."
+        npm run build
+    fi
 
     cd ..
     echo_success "前端编译完成"
@@ -64,7 +75,7 @@ build_backend() {
 
     # 编译 Go 程序
     echo_info "编译 Go 程序..."
-    go build -o imagespider .
+    env GOOS=linux GOARCH=amd64 go build -o imagespider .
 
     echo_success "后端编译完成，生成文件: imagespider"
 }
@@ -103,13 +114,14 @@ usage() {
     cat << EOF
 ImageSpider 编译脚本
 
-使用方法: $0 [frontend|backend|all|clean]
+使用方法: $0 [frontend|backend|all|clean|debug]
 
 参数说明:
     frontend    只编译前端
     backend     只编译后端
     all         编译前端和后端 (默认)
     clean       清理编译产物
+    debug       Debug 模式编译 (前端不压缩、生成 sourcemap)
     help        显示帮助信息
 
 示例:
@@ -117,6 +129,7 @@ ImageSpider 编译脚本
     $0 frontend # 只编译前端
     $0 backend  # 只编译后端
     $0 clean    # 清理编译产物
+    $0 debug    # Debug 模式编译
 
 EOF
 }
@@ -131,6 +144,10 @@ case "${1:-all}" in
         ;;
     all)
         build_frontend
+        build_backend
+        ;;
+    debug)
+        build_frontend true
         build_backend
         ;;
     clean)

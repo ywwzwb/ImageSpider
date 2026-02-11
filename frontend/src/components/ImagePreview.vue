@@ -4,6 +4,8 @@
     :footer="null"
     :width="modalWidth"
     :centered="true"
+    :mask-closable="true"
+    :keyboard="true"
     @cancel="handleCancel"
   >
     <template #closeIcon>
@@ -47,7 +49,7 @@
           class="nav-button next"
           shape="circle"
           size="large"
-          :disabled="currentIndex === images.length - 1"
+          :disabled="currentIndex >= (images || []).length - 1"
           @click.stop="navigateNext"
         >
           <template #icon>›</template>
@@ -162,8 +164,8 @@ const modalWidth = ref(800)
 const maxImageHeight = ref(600)
 
 // Computed
-const currentImage = computed(() => props.images[props.currentIndex] || null)
-const hasMultipleImages = computed(() => props.images.length > 1)
+const currentImage = computed(() => props.images?.[props.currentIndex] || null)
+const hasMultipleImages = computed(() => (props.images || []).length > 1)
 const fullImageUrl = computed(() => {
   if (!currentImage.value?.localPath) return null
   return `/image/${currentImage.value.localPath.replace(/^\/image\//, '')}`
@@ -205,7 +207,7 @@ function navigatePrev() {
 }
 
 function navigateNext() {
-  if (props.currentIndex < props.images.length - 1) {
+  if (props.currentIndex < (props.images || []).length - 1) {
     emit('update:currentIndex', props.currentIndex + 1)
   }
 }
@@ -247,10 +249,11 @@ async function handleDelete() {
       message.success('删除成功')
       emit('refresh')
       nextTick(() => {
-        if (props.images.length === 0) {
+        const imageCount = (props.images || []).length
+        if (imageCount === 0) {
           visible.value = false
-        } else if (props.currentIndex >= props.images.length) {
-          emit('update:currentIndex', props.images.length - 1)
+        } else if (props.currentIndex >= imageCount) {
+          emit('update:currentIndex', imageCount - 1)
         }
       })
     } else {
@@ -280,7 +283,7 @@ async function handleRedownload() {
 }
 
 async function handleSetCover() {
-  if (!currentImage.value || !currentImage.value.tags.length) {
+  if (!currentImage.value || !(currentImage.value.tags || []).length) {
     message.warning('该图片没有标签')
     return
   }
@@ -328,9 +331,6 @@ onMounted(() => {
   calculateModalSize()
   window.addEventListener('resize', calculateModalSize)
   document.addEventListener('keydown', handleKeydown)
-
-  // Set initial visibility
-  visible.value = true
 })
 
 // Cleanup
