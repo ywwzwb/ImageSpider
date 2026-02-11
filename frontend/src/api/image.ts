@@ -24,20 +24,20 @@ export const imageApi = {
       params.integrity_status = options.integrityStatus
     }
 
-    return client.get(`/${sourceId}/images`, { params }).then(res => res.data)
+    return client.get(`/${sourceId}/images`, { params })
   },
 
   getImage(sourceId: string, id: string): Promise<ImageMeta> {
-    return client.get(`/${sourceId}/image/${id}`).then(res => res.data)
+    return client.get(`/${sourceId}/image/${id}`)
   },
 
   batchDelete(sourceId: string, ids: string[]): Promise<BatchOperationResponse> {
     const data: BatchOperationRequest = { ids }
-    return client.delete(`/${sourceId}/images`, { data }).then(res => res.data)
+    return client.delete(`/${sourceId}/images`, { data })
   },
 
   batchRedownload(sourceId: string, ids: string[]): Promise<BatchOperationResponse> {
     const data: BatchOperationRequest = { ids }
-    return client.post(`/${sourceId}/images/redownload`, data).then(res => res.data)
+    return client.post(`/${sourceId}/images/redownload`, data)
   }
 }

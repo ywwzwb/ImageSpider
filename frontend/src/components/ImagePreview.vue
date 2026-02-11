@@ -1,22 +1,16 @@
 <template>
   <a-modal
-    v-model:visible="visible"
+    :visible="props.visible"
     :footer="null"
     :width="modalWidth"
     :centered="true"
+    :mask-closable="true"
+    :keyboard="true"
     @cancel="handleCancel"
   >
-    <template #closeIcon>
-      <div class="modal-header">
-        <a-button type="text" size="small" @click="toggleBatchMode">
-          {{ appStore.batchMode ? '退出批量' : '批量模式' }}
-        </a-button>
-      </div>
-    </template>
-
-    <div class="preview-content" :style="previewContentStyle">
+    <div class="preview-content" :style="previewContentStyle" @click.self="handleCancel">
       <!-- Image -->
-      <div class="image-wrapper" @click="handleImageClick">
+      <div class="image-wrapper">
         <img
           v-if="currentImage?.localPath && fullImageUrl"
           :src="fullImageUrl"
@@ -47,21 +41,11 @@
           class="nav-button next"
           shape="circle"
           size="large"
-          :disabled="currentIndex === images.length - 1"
+          :disabled="currentIndex >= (images || []).length - 1"
           @click.stop="navigateNext"
         >
           <template #icon>›</template>
         </a-button>
-      </div>
-
-      <!-- Selection checkbox -->
-      <div v-if="appStore.batchMode" class="preview-selection">
-        <a-checkbox
-          :checked="appStore.isImageSelected(currentImage.id)"
-          @change="handleSelectionChange"
-        >
-          选择
-        </a-checkbox>
       </div>
 
       <!-- Image info -->
@@ -129,7 +113,6 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { useAppStore } from '@/stores/app'
 import { useSourceStore } from '@/stores/source'
 import { useFilterStore } from '@/stores/filter'
 import { imageApi } from '@/api/image'
@@ -141,6 +124,7 @@ import { getIntegrityStatusText, getIntegrityStatusColor, formatDate } from '@/u
 interface Props {
   images: ImageMeta[]
   currentIndex: number
+  visible: boolean
 }
 
 interface Emits {
@@ -152,18 +136,16 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const appStore = useAppStore()
 const sourceStore = useSourceStore()
 const filterStore = useFilterStore()
 
 // State
-const visible = ref(false)
 const modalWidth = ref(800)
 const maxImageHeight = ref(600)
 
 // Computed
-const currentImage = computed(() => props.images[props.currentIndex] || null)
-const hasMultipleImages = computed(() => props.images.length > 1)
+const currentImage = computed(() => props.images?.[props.currentIndex] || null)
+const hasMultipleImages = computed(() => (props.images || []).length > 1)
 const fullImageUrl = computed(() => {
   if (!currentImage.value?.localPath) return null
   return `/image/${currentImage.value.localPath.replace(/^\/image\//, '')}`
@@ -176,7 +158,7 @@ const previewContentStyle = computed(() => ({
 
 // Keyboard navigation
 function handleKeydown(event: KeyboardEvent) {
-  if (!visible.value) return
+  if (!props.visible) return
 
   switch (event.key) {
     case 'ArrowLeft':
@@ -205,36 +187,20 @@ function navigatePrev() {
 }
 
 function navigateNext() {
-  if (props.currentIndex < props.images.length - 1) {
+  if (props.currentIndex < (props.images || []).length - 1) {
     emit('update:currentIndex', props.currentIndex + 1)
   }
 }
 
 // Event handlers
 function handleCancel() {
-  visible.value = false
-}
-
-function handleImageClick() {
-  if (appStore.batchMode) {
-    handleSelectionChange()
-  }
-}
-
-function handleSelectionChange() {
-  if (currentImage.value) {
-    appStore.toggleImageSelection(currentImage.value.id)
-  }
+  emit('update:visible', false)
 }
 
 function handleTagClick(tag: string) {
   if (!filterStore.hasTag(tag)) {
     filterStore.addTag(tag)
   }
-}
-
-function toggleBatchMode() {
-  appStore.toggleBatchMode()
 }
 
 // CRUD operations
@@ -247,10 +213,11 @@ async function handleDelete() {
       message.success('删除成功')
       emit('refresh')
       nextTick(() => {
-        if (props.images.length === 0) {
-          visible.value = false
-        } else if (props.currentIndex >= props.images.length) {
-          emit('update:currentIndex', props.images.length - 1)
+        const imageCount = (props.images || []).length
+        if (imageCount === 0) {
+          emit('update:visible', false)
+        } else if (props.currentIndex >= imageCount) {
+          emit('update:currentIndex', imageCount - 1)
         }
       })
     } else {
@@ -280,7 +247,7 @@ async function handleRedownload() {
 }
 
 async function handleSetCover() {
-  if (!currentImage.value || !currentImage.value.tags.length) {
+  if (!currentImage.value || !(currentImage.value.tags || []).length) {
     message.warning('该图片没有标签')
     return
   }
@@ -318,19 +285,11 @@ watch(() => props.currentIndex, () => {
   }
 })
 
-// Expose visible to parent
-watch(visible, (value) => {
-  emit('update:visible', value)
-})
-
 // Mount
 onMounted(() => {
   calculateModalSize()
   window.addEventListener('resize', calculateModalSize)
   document.addEventListener('keydown', handleKeydown)
-
-  // Set initial visibility
-  visible.value = true
 })
 
 // Cleanup
@@ -341,7 +300,7 @@ onBeforeUnmount(() => {
 
 // Initialize on visibility change
 watch(() => props.currentIndex, () => {
-  if (visible.value) {
+  if (props.visible) {
     nextTick(() => {
       calculateModalSize()
     })
@@ -402,15 +361,6 @@ watch(() => props.currentIndex, () => {
   pointer-events: all;
 }
 
-.preview-selection {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background: rgba(255, 255, 255, 0.9);
-  padding: 8px;
-  border-radius: 4px;
-}
-
 .image-info {
   background: #fafafa;
   padding: 16px;
@@ -453,11 +403,5 @@ watch(() => props.currentIndex, () => {
   display: flex;
   justify-content: center;
   gap: 8px;
-}
-
-.modal-header {
-  display: flex;
-  justify-content: flex-end;
-  width: 100%;
 }
 </style>

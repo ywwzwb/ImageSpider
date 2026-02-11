@@ -40,7 +40,7 @@
       </div>
 
       <!-- Tags -->
-      <div v-if="image.tags.length > 0" class="tags-preview">
+      <div v-if="(image.tags || []).length > 0" class="tags-preview">
         <template v-for="tag in visibleTags" :key="tag">
           <a-tag
             size="small"
@@ -119,8 +119,8 @@ const sourceStore = useSourceStore()
 // Computed
 const isSelected = computed(() => appStore.isImageSelected(props.image.id))
 const thumbnailUrl = computed(() => getThumbnailPath(props.image.localPath))
-const visibleTags = computed(() => props.image.tags.slice(0, 3))
-const hiddenTagCount = computed(() => Math.max(0, props.image.tags.length - 3))
+const visibleTags = computed(() => (props.image.tags || []).slice(0, 3))
+const hiddenTagCount = computed(() => Math.max(0, (props.image.tags || []).length - 3))
 
 // Methods
 function handleImageClick() {

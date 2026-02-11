@@ -20,13 +20,13 @@ const (
 )
 
 type ImageMeta struct {
-	ID               string
-	Tags             []string
-	LocalPath        *string
-	ImageURL         string
-	PostTime         time.Time
-	SourceID         string
-	IntegrityStatus  ImageIntegrityStatus // 图片完整性状态 (0=未知, 1=好图, -1=坏图)
+	ID               string               `json:"id"`
+	Tags             []string             `json:"tags"`
+	LocalPath        *string              `json:"localPath"`
+	ImageURL         string               `json:"imageURL"`
+	PostTime         time.Time            `json:"postTime"`
+	SourceID         string               `json:"sourceId"`
+	IntegrityStatus  ImageIntegrityStatus `json:"integrityStatus"` // 图片完整性状态 (0=未知, 1=好图, -1=坏图)
 }
 
 func (i *ImageMeta) Hash() string {

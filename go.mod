@@ -3,6 +3,7 @@ module ywwzwb/imagespider
 go 1.23.4
 
 require (
+	github.com/gin-contrib/gzip v0.0.6
 	github.com/gin-gonic/gin v1.10.0
 	github.com/samber/slog-gin v1.14.0
 	gopkg.in/yaml.v2 v2.4.0

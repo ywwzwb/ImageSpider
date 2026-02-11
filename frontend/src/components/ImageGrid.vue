@@ -58,7 +58,7 @@
     </div>
 
     <!-- Empty state -->
-    <div v-if="!loading && images.length === 0" class="empty-state">
+    <div v-if="!loading && (images || []).length === 0" class="empty-state">
       <a-empty description="暂无图片" />
     </div>
 
@@ -80,8 +80,8 @@
     <!-- Image preview modal -->
     <ImagePreview
       v-model:visible="previewVisible"
+      v-model:current-index="previewIndex"
       :images="images"
-      :current-index="previewIndex"
       @refresh="loadImages"
     />
   </div>
