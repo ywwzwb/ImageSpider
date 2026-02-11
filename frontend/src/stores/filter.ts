@@ -22,7 +22,7 @@ export const useFilterStore = defineStore('filter', () => {
 
   // Computed
   const selectedTagList = computed(() => Array.from(selectedTags.value))
-  const selectedStatusList = computed(() => Array.from(selectedStatus.value))
+  const selectedStatusList = computed(() => Array.from(selectedStatus.value).map(s => Number(s)))
 
   // Actions
   async function loadTags(sourceId: string, append = false) {

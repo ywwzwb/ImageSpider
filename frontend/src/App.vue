@@ -21,7 +21,16 @@
             </a-select-option>
           </a-select>
         </div>
-        <div class="batch-toggle">
+        <div class="header-actions">
+          <!-- Mobile filter toggle button -->
+          <a-button
+            v-if="isMobile"
+            class="filter-toggle-btn"
+            @click="showFilterDrawer = true"
+          >
+            <template #icon>🔍</template>
+            筛选
+          </a-button>
           <a-button
             :type="appStore.batchMode ? 'primary' : 'default'"
             @click="appStore.toggleBatchMode"
@@ -32,24 +41,45 @@
       </a-layout-header>
       <a-layout style="padding: 24px">
         <a-row :gutter="24">
-          <a-col :span="6">
+          <!-- Desktop sidebar -->
+          <a-col v-if="!isMobile" :span="6">
             <a-card title="筛选器" :loading="filterStore.loading">
               <IntegrityFilter />
               <a-divider style="margin: 16px 0" />
               <TagFilter />
             </a-card>
           </a-col>
-          <a-col :span="18">
+          <a-col :span="isMobile ? 24 : 18">
             <ImageGrid ref="imageGridRef" />
           </a-col>
         </a-row>
       </a-layout>
     </a-layout>
+
+    <!-- Mobile filter drawer -->
+    <a-drawer
+      v-model:open="showFilterDrawer"
+      title="筛选器"
+      placement="left"
+      :width="drawerWidth"
+      :closable="true"
+    >
+      <div class="drawer-content">
+        <IntegrityFilter />
+        <a-divider style="margin: 16px 0" />
+        <TagFilter />
+      </div>
+      <div class="drawer-footer">
+        <a-button type="primary" block @click="showFilterDrawer = false">
+          完成
+        </a-button>
+      </div>
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useAppStore } from './stores/app'
 import { useSourceStore } from './stores/source'
 import { useFilterStore } from './stores/filter'
@@ -63,9 +93,25 @@ const filterStore = useFilterStore()
 
 const selectedSource = ref<string>('')
 const imageGridRef = ref<InstanceType<typeof ImageGrid>>()
+const showFilterDrawer = ref(false)
+const windowWidth = ref(window.innerWidth)
 
-// No need to set up message function anymore
+// Computed
+const isMobile = computed(() => windowWidth.value < 768)
+const drawerWidth = computed(() => Math.min(windowWidth.value * 0.85, 400))
 
+// Handle window resize
+function handleResize() {
+  windowWidth.value = window.innerWidth
+}
+
+onMounted(() => {
+  window.addEventListener('resize', handleResize)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize)
+})
 
 // Load sources on mount
 sourceStore.loadSources()
@@ -97,11 +143,72 @@ watch(() => sourceStore.currentSource, (newSource) => {
   margin-right: 24px;
 }
 
+.logo h1 {
+  font-size: 20px;
+}
+
 .source-selector {
   flex: 1;
 }
 
-.batch-toggle {
-  margin-left: 24px;
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.filter-toggle-btn {
+  display: none;
+}
+
+.drawer-content {
+  padding-bottom: 60px;
+}
+
+.drawer-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 16px;
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+}
+
+/* Mobile responsive styles */
+@media (max-width: 767px) {
+  .header {
+    padding: 0 12px;
+  }
+
+  .logo {
+    margin-right: 12px;
+  }
+
+  .logo h1 {
+    font-size: 16px;
+  }
+
+  .source-selector {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .source-selector .ant-select {
+    width: 100% !important;
+  }
+
+  .filter-toggle-btn {
+    display: inline-flex;
+  }
+
+  .header-actions {
+    gap: 8px;
+  }
+
+  .header-actions .ant-btn {
+    padding: 0 8px;
+    font-size: 12px;
+  }
 }
 </style>
