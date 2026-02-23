@@ -17,6 +17,7 @@
           :alt="currentImage?.id"
           class="preview-image"
           :class="{ zoomed: isZoomed }"
+          :style="{ maxHeight: isZoomed ? 'none' : maxImageHeight + 'px' }"
           @error="handleImageError"
           @click="toggleZoom"
         >
@@ -397,7 +398,6 @@ watch(() => props.currentIndex, () => {
 
 .preview-image {
   max-width: 100%;
-  max-height: v-bind(maxImageHeight + 'px');
   width: auto;
   height: auto;
   object-fit: contain;
@@ -410,7 +410,6 @@ watch(() => props.currentIndex, () => {
 
 .preview-image.zoomed {
   max-width: none;
-  max-height: none;
   cursor: zoom-out;
 }
 
