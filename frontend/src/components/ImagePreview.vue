@@ -1,6 +1,5 @@
 <template>
   <a-modal
-    :class="'image-preview-modal'"
     :visible="props.visible"
     :footer="null"
     :width="modalWidth"
@@ -386,19 +385,23 @@ watch(() => props.currentIndex, () => {
   margin-bottom: 16px;
   position: relative;
   min-height: 200px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+}
+
+.image-wrapper:not(.zoomed) {
+  height: auto;
+  max-height: v-bind(maxImageHeight + 'px');
 }
 
 .image-wrapper.zoomed {
-  justify-content: flex-start;
-  align-items: flex-start;
+  height: v-bind(maxImageHeight + 'px');
+  overflow: auto;
 }
 
 .preview-image {
   max-width: 100%;
-  max-height: 100%;
+  max-height: v-bind(maxImageHeight + 'px');
+  width: auto;
+  height: auto;
   object-fit: contain;
   border-radius: 4px;
   cursor: zoom-in;
@@ -407,7 +410,7 @@ watch(() => props.currentIndex, () => {
   margin: 0 auto;
 }
 
-.image-wrapper.zoomed .preview-image {
+.preview-image.zoomed {
   max-width: none;
   max-height: none;
   cursor: zoom-out;
@@ -508,25 +511,24 @@ watch(() => props.currentIndex, () => {
   display: flex;
   justify-content: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
-</style>
 
-<style>
-/* Global styles for the modal */
-.image-preview-modal .ant-modal {
+/* Ensure modal fits viewport */
+:deep(.ant-modal) {
   max-height: 95vh;
-  top: 2.5vh;
+  margin: 2.5vh auto;
 }
 
-.image-preview-modal .ant-modal-content {
+:deep(.ant-modal-content) {
   max-height: 95vh;
   display: flex;
   flex-direction: column;
 }
 
-.image-preview-modal .ant-modal-body {
+:deep(.ant-modal-body) {
   flex: 1;
-  overflow: visible;
-  padding: 0;
+  overflow: auto;
+  padding: 16px;
 }
 </style>
