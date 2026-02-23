@@ -9,9 +9,9 @@
     :keyboard="true"
     @cancel="handleCancel"
   >
-    <div class="preview-content" :style="previewContentStyle" @click.self="handleCancel">
+    <div class="preview-content" @click.self="handleCancel">
       <!-- Image -->
-      <div class="image-wrapper" :class="{ zoomed: isZoomed }">
+      <div class="image-wrapper" :class="{ zoomed: isZoomed }" :style="imageWrapperStyle">
         <img
           v-if="currentImage?.localPath && fullImageUrl"
           :src="fullImageUrl"
@@ -178,17 +178,16 @@ const fullImageUrl = computed(() => {
   return `/image/${currentImage.value.localPath.replace(/^\/image\//, '')}`
 })
 
-const previewContentStyle = computed(() => {
-  // Only allow scrolling in zoomed mode
+const imageWrapperStyle = computed(() => {
   if (isZoomed.value) {
     return {
-      maxHeight: `${maxImageHeight.value}px`,
+      height: `${maxImageHeight.value}px`,
       overflow: 'auto'
     }
   }
-  // Default: no scrolling, let image display fully
   return {
-    overflow: 'visible'
+    maxHeight: `${maxImageHeight.value}px`,
+    overflow: 'hidden'
   }
 })
 
@@ -393,15 +392,13 @@ watch(() => props.currentIndex, () => {
 }
 
 .image-wrapper.zoomed {
-  overflow: auto;
-  max-height: v-bind(maxImageHeight + 'px');
+  justify-content: flex-start;
+  align-items: flex-start;
 }
 
 .preview-image {
   max-width: 100%;
-  max-height: none;
-  height: auto;
-  width: auto;
+  max-height: 100%;
   object-fit: contain;
   border-radius: 4px;
   cursor: zoom-in;
@@ -410,7 +407,7 @@ watch(() => props.currentIndex, () => {
   margin: 0 auto;
 }
 
-.preview-image.zoomed {
+.image-wrapper.zoomed .preview-image {
   max-width: none;
   max-height: none;
   cursor: zoom-out;
