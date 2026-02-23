@@ -41,6 +41,7 @@ export interface SourcesResponse {
 export interface BatchOperationResponse {
   deleted?: number
   redownloaded?: number
+  updated?: number
   total: number
 }
 
