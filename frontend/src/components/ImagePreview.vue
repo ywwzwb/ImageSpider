@@ -319,10 +319,10 @@ function calculateModalSize() {
   const viewportWidth = window.innerWidth
   const viewportHeight = window.innerHeight
 
-  // Modal takes up to 90% of viewport width/height
-  modalWidth.value = Math.min(viewportWidth * 0.9, 1400)
-  // Image area takes up to 70% of viewport height (leaving room for info/actions)
-  maxImageHeight.value = viewportHeight * 0.7
+  // Modal takes up to 95% of viewport width/height
+  modalWidth.value = Math.min(viewportWidth * 0.95, 1400)
+  // Image area takes up to 80% of viewport height
+  maxImageHeight.value = viewportHeight * 0.8
 }
 
 // Watch for visibility changes
@@ -376,6 +376,10 @@ watch(() => props.currentIndex, () => {
   text-align: center;
   margin-bottom: 16px;
   position: relative;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .image-wrapper.zoomed {
@@ -386,10 +390,14 @@ watch(() => props.currentIndex, () => {
 .preview-image {
   max-width: 100%;
   max-height: v-bind(maxImageHeight + 'px');
+  height: auto;
+  width: auto;
   object-fit: contain;
   border-radius: 4px;
   cursor: zoom-in;
   transition: all 0.3s ease;
+  display: block;
+  margin: 0 auto;
 }
 
 .preview-image.zoomed {
