@@ -68,6 +68,7 @@ func (s *API) Load(app interfaces.IApplication) error {
 	api.GET("/:sourceid/image/:id", s.getImage)
 	api.DELETE("/:sourceid/images", s.batchDeleteImages)
 	api.POST("/:sourceid/images/redownload", s.batchRedownloadImages)
+	api.POST("/:sourceid/images/status", s.batchUpdateImageStatus)
 	api.POST("/:sourceid/tags/:tag/cover", s.setTagCover)
 	s.router.Static("/image", s.app.GetAppConfig().ImageDir)
 	// 自定义处理 /www 路径，解决静态文件服务不会自动加载 index.html 的问题
@@ -225,4 +226,25 @@ func (s *API) setTagCover(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"success": true})
+}
+func (s *API) batchUpdateImageStatus(c *gin.Context) {
+	sourceid := c.Param("sourceid")
+	var request struct {
+		IDs    []string `json:"ids" binding:"required"`
+		Status int16    `json:"status" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request body"})
+		return
+	}
+	updatedCount := 0
+	status := models.ImageIntegrityStatus(request.Status)
+	for _, id := range request.IDs {
+		if err := s.dbService.UpdateImageIntegrityStatus(sourceid, id, status); err != nil {
+			slog.Error("Failed to update image status", "id", id, "status", status, "error", err)
+			continue
+		}
+		updatedCount++
+	}
+	c.JSON(http.StatusOK, map[string]any{"updated": updatedCount, "total": len(request.IDs)})
 }

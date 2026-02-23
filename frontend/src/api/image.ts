@@ -56,5 +56,9 @@ export const imageApi = {
   batchRedownload(sourceId: string, ids: string[]): Promise<BatchOperationResponse> {
     const data: BatchOperationRequest = { ids }
     return client.post(`/${sourceId}/images/redownload`, data)
+  },
+
+  batchUpdateStatus(sourceId: string, ids: string[], status: number): Promise<BatchOperationResponse> {
+    return client.post(`/${sourceId}/images/status`, { ids, status })
   }
 }

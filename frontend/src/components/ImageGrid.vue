@@ -29,6 +29,25 @@
         >
           <a-button size="small">批量重新下载</a-button>
         </a-popconfirm>
+        <a-dropdown>
+          <a-button size="small">
+            批量标记状态
+            <span style="margin-left: 4px">▼</span>
+          </a-button>
+          <template #overlay>
+            <a-menu @click="handleBatchStatusChange">
+              <a-menu-item key="0">
+                <a-tag size="small" :color="getIntegrityStatusColor(0)">未知</a-tag>
+              </a-menu-item>
+              <a-menu-item key="1">
+                <a-tag size="small" :color="getIntegrityStatusColor(1)">正常</a-tag>
+              </a-menu-item>
+              <a-menu-item key="-1">
+                <a-tag size="small" :color="getIntegrityStatusColor(-1)">破损</a-tag>
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
       </a-space>
     </div>
 
@@ -97,6 +116,7 @@ import { useSourceStore } from '@/stores/source'
 import { useFilterStore } from '@/stores/filter'
 import { imageApi } from '@/api/image'
 import type { ImageMeta } from '@/types/api'
+import { getIntegrityStatusColor } from '@/utils/format'
 
 const appStore = useAppStore()
 const sourceStore = useSourceStore()
@@ -218,6 +238,31 @@ async function handleBatchRedownload() {
   } catch (error) {
     console.error('Failed to batch redownload:', error)
     message.error('重新下载失败')
+  }
+}
+
+async function handleBatchStatusChange(menuInfo: { key: string }) {
+  const ids = appStore.getSelectedIds()
+  if (ids.length === 0) {
+    message.warning('请先选择图片')
+    return
+  }
+
+  const status = parseInt(menuInfo.key, 10)
+  const statusText = status === 0 ? '未知' : status === 1 ? '正常' : '破损'
+
+  try {
+    const response = await imageApi.batchUpdateStatus(sourceStore.currentSource, ids, status)
+    if (response.updated && response.updated > 0) {
+      message.success(`已将 ${response.updated} 张图片标记为${statusText}`)
+      appStore.clearSelection()
+      loadImages()
+    } else {
+      message.error('状态更新失败')
+    }
+  } catch (error) {
+    console.error('Failed to batch update status:', error)
+    message.error('状态更新失败')
   }
 }
 

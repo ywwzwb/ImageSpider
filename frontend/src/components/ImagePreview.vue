@@ -10,14 +10,19 @@
   >
     <div class="preview-content" :style="previewContentStyle" @click.self="handleCancel">
       <!-- Image -->
-      <div class="image-wrapper">
+      <div class="image-wrapper" :class="{ zoomed: isZoomed }">
         <img
           v-if="currentImage?.localPath && fullImageUrl"
           :src="fullImageUrl"
           :alt="currentImage?.id"
           class="preview-image"
+          :class="{ zoomed: isZoomed }"
           @error="handleImageError"
+          @click="toggleZoom"
         >
+        <div v-if="currentImage?.localPath && fullImageUrl" class="zoom-hint" @click="toggleZoom">
+          {{ isZoomed ? '点击缩小' : '点击放大' }}
+        </div>
         <div v-else class="no-image-large">
           <div class="no-image-content">
             <div class="no-image-icon">📷</div>
@@ -83,6 +88,25 @@
       <!-- Actions -->
       <div class="preview-actions">
         <a-space>
+          <a-dropdown>
+            <a-button>
+              标记状态
+              <span style="margin-left: 4px">▼</span>
+            </a-button>
+            <template #overlay>
+              <a-menu @click="handleStatusChange">
+                <a-menu-item key="0">
+                  <a-tag :color="getIntegrityStatusColor(ImageIntegrityStatus.UNKNOWN)">未知</a-tag>
+                </a-menu-item>
+                <a-menu-item key="1">
+                  <a-tag :color="getIntegrityStatusColor(ImageIntegrityStatus.GOOD)">正常</a-tag>
+                </a-menu-item>
+                <a-menu-item key="-1">
+                  <a-tag :color="getIntegrityStatusColor(ImageIntegrityStatus.BAD)">破损</a-tag>
+                </a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
           <a-popconfirm
             title="确定要删除这张图片吗？"
             ok-text="删除"
@@ -118,6 +142,7 @@ import { useFilterStore } from '@/stores/filter'
 import { imageApi } from '@/api/image'
 import { tagApi } from '@/api/tag'
 import type { ImageMeta } from '@/types/api'
+import { ImageIntegrityStatus } from '@/types/api'
 import { message } from 'ant-design-vue'
 import { getIntegrityStatusText, getIntegrityStatusColor, formatDate } from '@/utils/format'
 
@@ -142,6 +167,7 @@ const filterStore = useFilterStore()
 // State
 const modalWidth = ref(800)
 const maxImageHeight = ref(600)
+const isZoomed = ref(false)
 
 // Computed
 const currentImage = computed(() => props.images?.[props.currentIndex] || null)
@@ -200,6 +226,24 @@ function handleCancel() {
 function handleTagClick(tag: string) {
   if (!filterStore.hasTag(tag)) {
     filterStore.addTag(tag)
+  }
+}
+
+async function handleStatusChange(menuInfo: { key: string }) {
+  if (!currentImage.value) return
+
+  const status = parseInt(menuInfo.key, 10) as ImageIntegrityStatus
+  try {
+    const response = await imageApi.batchUpdateStatus(sourceStore.currentSource, [currentImage.value.id], status)
+    if (response.updated && response.updated > 0) {
+      message.success('状态更新成功')
+      emit('refresh')
+    } else {
+      message.error('状态更新失败')
+    }
+  } catch (error) {
+    console.error('Failed to update image status:', error)
+    message.error('状态更新失败')
   }
 }
 
@@ -266,22 +310,36 @@ function handleImageError() {
   console.error('Failed to load image:', currentImage.value?.id)
 }
 
+function toggleZoom() {
+  isZoomed.value = !isZoomed.value
+}
+
 // Calculate modal size based on viewport
 function calculateModalSize() {
   const viewportWidth = window.innerWidth
   const viewportHeight = window.innerHeight
 
-  // Leave margins for modal
-  modalWidth.value = Math.min(viewportWidth - 100, 1200)
-  maxImageHeight.value = viewportHeight - 400 // Leave space for info and actions
+  // Modal takes up to 90% of viewport width/height
+  modalWidth.value = Math.min(viewportWidth * 0.9, 1400)
+  // Image area takes up to 70% of viewport height (leaving room for info/actions)
+  maxImageHeight.value = viewportHeight * 0.7
 }
 
 // Watch for visibility changes
 watch(() => props.currentIndex, () => {
+  // Reset zoom when image changes
+  isZoomed.value = false
   // Scroll to top when image changes
   const content = document.querySelector('.preview-content')
   if (content) {
     content.scrollTop = 0
+  }
+})
+
+// Reset zoom when modal closes
+watch(() => props.visible, (visible) => {
+  if (!visible) {
+    isZoomed.value = false
   }
 })
 
@@ -317,6 +375,12 @@ watch(() => props.currentIndex, () => {
 .image-wrapper {
   text-align: center;
   margin-bottom: 16px;
+  position: relative;
+}
+
+.image-wrapper.zoomed {
+  overflow: auto;
+  max-height: v-bind(maxImageHeight + 'px');
 }
 
 .preview-image {
@@ -324,6 +388,32 @@ watch(() => props.currentIndex, () => {
   max-height: v-bind(maxImageHeight + 'px');
   object-fit: contain;
   border-radius: 4px;
+  cursor: zoom-in;
+  transition: all 0.3s ease;
+}
+
+.preview-image.zoomed {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+
+.zoom-hint {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.zoom-hint:hover {
+  opacity: 1;
 }
 
 .no-image-large {
