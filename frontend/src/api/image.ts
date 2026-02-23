@@ -24,7 +24,24 @@ export const imageApi = {
       params.integrity_status = options.integrityStatus
     }
 
-    return client.get(`/${sourceId}/images`, { params })
+    // Use paramsSerializer to send array as repeated params (tag=val1&tag=val2)
+    // which Gin can correctly parse
+    return client.get(`/${sourceId}/images`, {
+      params,
+      paramsSerializer: (params) => {
+        const parts: string[] = []
+        Object.entries(params).forEach(([key, value]) => {
+          if (Array.isArray(value)) {
+            value.forEach((v) => {
+              parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`)
+            })
+          } else {
+            parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+          }
+        })
+        return parts.join('&')
+      }
+    })
   },
 
   getImage(sourceId: string, id: string): Promise<ImageMeta> {

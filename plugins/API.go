@@ -120,7 +120,12 @@ func (s *API) listImages(c *gin.Context) {
 	if v, err := strconv.ParseInt(c.DefaultQuery("limit", "50"), 10, 32); err == nil {
 		limit = v
 	}
+
+	// Debug: log raw query parameters
+	slog.Debug("listImages request", "query", c.Request.URL.RawQuery)
+
 	tags := c.QueryArray("tag")
+	slog.Debug("listImages tags", "tags", tags, "count", len(tags))
 
 	// Parse integrity_status filter
 	var status []models.ImageIntegrityStatus
@@ -132,6 +137,7 @@ func (s *API) listImages(c *gin.Context) {
 			}
 		}
 	}
+	slog.Debug("listImages status", "status", status, "count", len(status))
 
 	if imagList, err := s.dbService.ListDownloadedImage(sourceid, tags, status, offset, limit); err == nil {
 		c.JSON(http.StatusOK, imagList)
