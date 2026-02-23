@@ -1,5 +1,6 @@
 <template>
   <a-modal
+    :class="'image-preview-modal'"
     :visible="props.visible"
     :footer="null"
     :width="modalWidth"
@@ -177,10 +178,19 @@ const fullImageUrl = computed(() => {
   return `/image/${currentImage.value.localPath.replace(/^\/image\//, '')}`
 })
 
-const previewContentStyle = computed(() => ({
-  maxHeight: `${maxImageHeight.value}px`,
-  overflow: 'auto'
-}))
+const previewContentStyle = computed(() => {
+  // Only allow scrolling in zoomed mode
+  if (isZoomed.value) {
+    return {
+      maxHeight: `${maxImageHeight.value}px`,
+      overflow: 'auto'
+    }
+  }
+  // Default: no scrolling, let image display fully
+  return {
+    overflow: 'visible'
+  }
+})
 
 // Keyboard navigation
 function handleKeydown(event: KeyboardEvent) {
@@ -389,7 +399,7 @@ watch(() => props.currentIndex, () => {
 
 .preview-image {
   max-width: 100%;
-  max-height: v-bind(maxImageHeight + 'px');
+  max-height: none;
   height: auto;
   width: auto;
   object-fit: contain;
@@ -501,5 +511,25 @@ watch(() => props.currentIndex, () => {
   display: flex;
   justify-content: center;
   gap: 8px;
+}
+</style>
+
+<style>
+/* Global styles for the modal */
+.image-preview-modal .ant-modal {
+  max-height: 95vh;
+  top: 2.5vh;
+}
+
+.image-preview-modal .ant-modal-content {
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-preview-modal .ant-modal-body {
+  flex: 1;
+  overflow: visible;
+  padding: 0;
 }
 </style>
