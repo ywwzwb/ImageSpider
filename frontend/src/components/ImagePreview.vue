@@ -385,21 +385,16 @@ watch(() => props.currentIndex, () => {
   margin-bottom: 16px;
   position: relative;
   min-height: 200px;
-}
-
-.image-wrapper:not(.zoomed) {
-  height: auto;
   max-height: v-bind(maxImageHeight + 'px');
 }
 
 .image-wrapper.zoomed {
-  height: v-bind(maxImageHeight + 'px');
   overflow: auto;
 }
 
 .preview-image {
   max-width: 100%;
-  max-height: v-bind(maxImageHeight + 'px');
+  max-height: none;
   width: auto;
   height: auto;
   object-fit: contain;
