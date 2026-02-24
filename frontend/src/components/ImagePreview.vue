@@ -9,28 +9,31 @@
     @cancel="handleCancel"
   >
     <div class="preview-content" @click.self="handleCancel">
-      <!-- Zoom hint - fixed position -->
-      <div v-if="currentImage?.localPath && fullImageUrl" class="zoom-hint" @click="toggleZoom">
-        {{ isZoomed ? '点击缩小' : '点击放大' }}
-      </div>
-
-      <!-- Image -->
-      <div class="image-wrapper" :class="{ zoomed: isZoomed }" :style="imageWrapperStyle">
-        <img
-          v-if="currentImage?.localPath && fullImageUrl"
-          :src="fullImageUrl"
-          :alt="currentImage?.id"
-          class="preview-image"
-          :class="{ zoomed: isZoomed }"
-          :style="{ maxHeight: isZoomed ? 'none' : maxImageHeight + 'px' }"
-          @error="handleImageError"
-          @click="toggleZoom"
-        >
-        <div v-else class="no-image-large">
-          <div class="no-image-content">
-            <div class="no-image-icon">📷</div>
-            <div class="no-image-text">无图片</div>
+      <!-- Image container with fixed positioning context -->
+      <div class="image-container" :style="{ height: maxImageHeight + 'px' }">
+        <!-- Image wrapper for scrolling when zoomed -->
+        <div class="image-wrapper" :class="{ zoomed: isZoomed }">
+          <img
+            v-if="currentImage?.localPath && fullImageUrl"
+            :src="fullImageUrl"
+            :alt="currentImage?.id"
+            class="preview-image"
+            :class="{ zoomed: isZoomed }"
+            :style="{ maxHeight: isZoomed ? 'none' : maxImageHeight + 'px' }"
+            @error="handleImageError"
+            @click="toggleZoom"
+          >
+          <div v-else class="no-image-large">
+            <div class="no-image-content">
+              <div class="no-image-icon">📷</div>
+              <div class="no-image-text">无图片</div>
+            </div>
           </div>
+        </div>
+
+        <!-- Zoom hint - positioned relative to container -->
+        <div v-if="currentImage?.localPath && fullImageUrl" class="zoom-hint" @click="toggleZoom">
+          {{ isZoomed ? '点击缩小' : '点击放大' }}
         </div>
       </div>
 
@@ -178,19 +181,6 @@ const hasMultipleImages = computed(() => (props.images || []).length > 1)
 const fullImageUrl = computed(() => {
   if (!currentImage.value?.localPath) return null
   return `/image/${currentImage.value.localPath.replace(/^\/image\//, '')}`
-})
-
-const imageWrapperStyle = computed(() => {
-  if (isZoomed.value) {
-    return {
-      height: `${maxImageHeight.value}px`,
-      overflow: 'auto'
-    }
-  }
-  return {
-    maxHeight: `${maxImageHeight.value}px`,
-    overflow: 'hidden'
-  }
 })
 
 // Keyboard navigation
@@ -383,19 +373,26 @@ watch(() => props.currentIndex, () => {
   padding: 16px;
 }
 
-.image-wrapper {
-  text-align: center;
-  margin-bottom: 16px;
+.image-container {
   position: relative;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.image-wrapper:not(.zoomed) {
-  max-height: v-bind(maxImageHeight + 'px');
+.image-wrapper {
+  text-align: center;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .image-wrapper.zoomed {
   overflow: auto;
-  max-height: v-bind(maxImageHeight + 'px');
+  display: block;
 }
 
 .preview-image {
@@ -416,9 +413,9 @@ watch(() => props.currentIndex, () => {
 }
 
 .zoom-hint {
-  position: fixed;
-  bottom: 80px;
-  right: 20px;
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
   background: rgba(0, 0, 0, 0.6);
   color: white;
   padding: 8px 12px;
@@ -427,7 +424,7 @@ watch(() => props.currentIndex, () => {
   cursor: pointer;
   opacity: 0.8;
   transition: opacity 0.2s;
-  z-index: 1000;
+  z-index: 10;
 }
 
 .zoom-hint:hover {
