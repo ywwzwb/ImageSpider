@@ -9,6 +9,11 @@
     @cancel="handleCancel"
   >
     <div class="preview-content" @click.self="handleCancel">
+      <!-- Zoom hint - fixed position -->
+      <div v-if="currentImage?.localPath && fullImageUrl" class="zoom-hint" @click="toggleZoom">
+        {{ isZoomed ? '点击缩小' : '点击放大' }}
+      </div>
+
       <!-- Image -->
       <div class="image-wrapper" :class="{ zoomed: isZoomed }" :style="imageWrapperStyle">
         <img
@@ -21,9 +26,6 @@
           @error="handleImageError"
           @click="toggleZoom"
         >
-        <div v-if="currentImage?.localPath && fullImageUrl" class="zoom-hint" @click="toggleZoom">
-          {{ isZoomed ? '点击缩小' : '点击放大' }}
-        </div>
         <div v-else class="no-image-large">
           <div class="no-image-content">
             <div class="no-image-icon">📷</div>
@@ -328,10 +330,10 @@ function calculateModalSize() {
   const viewportWidth = window.innerWidth
   const viewportHeight = window.innerHeight
 
-  // Modal takes up to 95% of viewport width/height
-  modalWidth.value = Math.min(viewportWidth * 0.95, 1400)
-  // Image area takes up to 80% of viewport height
-  maxImageHeight.value = viewportHeight * 0.8
+  // Modal takes up to 90% of viewport width
+  modalWidth.value = Math.min(viewportWidth * 0.9, 1200)
+  // Image area takes up to 50% of viewport height (leave room for info/actions)
+  maxImageHeight.value = viewportHeight * 0.5
 }
 
 // Watch for visibility changes
@@ -414,17 +416,18 @@ watch(() => props.currentIndex, () => {
 }
 
 .zoom-hint {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
+  position: fixed;
+  bottom: 80px;
+  right: 20px;
   background: rgba(0, 0, 0, 0.6);
   color: white;
-  padding: 4px 8px;
+  padding: 8px 12px;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 14px;
   cursor: pointer;
   opacity: 0.8;
   transition: opacity 0.2s;
+  z-index: 1000;
 }
 
 .zoom-hint:hover {
@@ -513,19 +516,20 @@ watch(() => props.currentIndex, () => {
 
 /* Ensure modal fits viewport */
 :deep(.ant-modal) {
-  max-height: 95vh;
-  margin: 2.5vh auto;
+  max-height: 90vh;
+  top: 5vh;
+  margin: 0 auto;
 }
 
 :deep(.ant-modal-content) {
-  max-height: 95vh;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
 }
 
 :deep(.ant-modal-body) {
-  flex: 1;
-  overflow: auto;
+  max-height: calc(90vh - 110px);
+  overflow-y: auto;
   padding: 16px;
 }
 </style>
