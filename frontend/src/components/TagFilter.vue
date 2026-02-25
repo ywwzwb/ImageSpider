@@ -2,10 +2,36 @@
   <div class="tag-filter">
     <div class="filter-title" style="margin-bottom: 8px; font-weight: 500">
       标签筛选
+      <span v-if="selectedTags.length > 0" class="selected-count">({{ selectedTags.length }})</span>
     </div>
+
+    <!-- Selected tags section -->
+    <div v-if="selectedTags.length > 0" class="selected-tags-section">
+      <div class="selected-tags-header">
+        <span class="section-label">已选中</span>
+        <a-button type="link" size="small" @click="clearSelectedTags">
+          清空
+        </a-button>
+      </div>
+      <div class="selected-tags-list">
+        <div
+          v-for="tag in selectedTags"
+          :key="tag.tag"
+          class="tag-item selected"
+          @click="handleTagClick(tag.tag)"
+        >
+          <span class="tag-name">{{ tag.tag }}</span>
+          <span class="tag-count">({{ tag.count }})</span>
+          <span class="remove-icon">✕</span>
+        </div>
+      </div>
+      <a-divider style="margin: 12px 0" />
+    </div>
+
+    <!-- All tags section -->
     <div class="tag-list">
       <div
-        v-for="tag in filterStore.tags"
+        v-for="tag in unselectedTags"
         :key="tag.tag"
         class="tag-item"
         :class="{ selected: filterStore.hasTag(tag.tag) }"
@@ -29,14 +55,28 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useFilterStore } from '@/stores/filter'
 import { useSourceStore } from '@/stores/source'
 
 const filterStore = useFilterStore()
 const sourceStore = useSourceStore()
 
+// Computed: separate selected and unselected tags
+const selectedTags = computed(() => {
+  return filterStore.tags.filter(tag => filterStore.hasTag(tag.tag))
+})
+
+const unselectedTags = computed(() => {
+  return filterStore.tags.filter(tag => !filterStore.hasTag(tag.tag))
+})
+
 function handleTagClick(tag: string) {
   filterStore.toggleTag(tag)
+}
+
+function clearSelectedTags() {
+  filterStore.reset()
 }
 
 async function loadMore() {
@@ -51,8 +91,41 @@ async function loadMore() {
   padding: 12px 0;
 }
 
+.filter-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selected-count {
+  color: #1890ff;
+  font-size: 14px;
+}
+
+.selected-tags-section {
+  margin-bottom: 8px;
+}
+
+.selected-tags-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.section-label {
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.selected-tags-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .tag-list {
-  max-height: 400px;
+  max-height: 300px;
   overflow-y: auto;
 }
 
@@ -61,7 +134,6 @@ async function loadMore() {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  margin-bottom: 4px;
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s;
@@ -77,6 +149,10 @@ async function loadMore() {
   border-color: #91d5ff;
 }
 
+.tag-item.selected:hover {
+  background-color: #bae7ff;
+}
+
 .tag-name {
   flex: 1;
   overflow: hidden;
@@ -88,6 +164,18 @@ async function loadMore() {
   color: #8c8c8c;
   font-size: 12px;
   margin-left: 8px;
+}
+
+.remove-icon {
+  margin-left: 8px;
+  color: #ff4d4f;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.tag-item.selected:hover .remove-icon {
+  opacity: 1;
 }
 
 .load-more,
