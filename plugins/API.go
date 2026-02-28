@@ -5,7 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 	"ywwzwb/imagespider/embed"
 	"ywwzwb/imagespider/interfaces"
@@ -71,6 +75,7 @@ func (s *API) Load(app interfaces.IApplication) error {
 	api.POST("/:sourceid/images/status", s.batchUpdateImageStatus)
 	api.POST("/:sourceid/tags/:tag/cover", s.setTagCover)
 	s.router.Static("/image", s.app.GetAppConfig().ImageDir)
+	s.router.GET("/convert_image/*path", s.convertImage)
 	// 自定义处理 /www 路径，解决静态文件服务不会自动加载 index.html 的问题
 	// s.router.GET("/www", func(c *gin.Context) {
 	// 	c.Header("Content-Type", "text/html; charset=utf-8")
@@ -247,4 +252,62 @@ func (s *API) batchUpdateImageStatus(c *gin.Context) {
 		updatedCount++
 	}
 	c.JSON(http.StatusOK, map[string]any{"updated": updatedCount, "total": len(request.IDs)})
+}
+
+func (s *API) convertImage(c *gin.Context) {
+	imagePath := c.Param("path")
+	if imagePath == "" || imagePath == "/" {
+		c.String(http.StatusBadRequest, "Invalid path")
+		return
+	}
+	// Remove leading slash
+	imagePath = strings.TrimPrefix(imagePath, "/")
+
+	imageDir := s.app.GetAppConfig().ImageDir
+	fullPath := filepath.Join(imageDir, imagePath)
+
+	// 1. Check if requested file exists directly
+	if _, err := os.Stat(fullPath); err == nil {
+		c.File(fullPath)
+		return
+	}
+
+	// 2. File doesn't exist, look for files with same name but different extension
+	dir := filepath.Dir(fullPath)
+	baseName := strings.TrimSuffix(filepath.Base(fullPath), filepath.Ext(fullPath))
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		c.String(http.StatusNotFound, "File not found")
+		return
+	}
+
+	var sourceFile string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		entryName := entry.Name()
+		entryBaseName := strings.TrimSuffix(entryName, filepath.Ext(entryName))
+		if entryBaseName == baseName {
+			sourceFile = filepath.Join(dir, entryName)
+			break
+		}
+	}
+
+	if sourceFile == "" {
+		c.String(http.StatusNotFound, "File not found")
+		return
+	}
+
+	// 3. Convert using magick command
+	cmd := exec.Command("magick", sourceFile, fullPath)
+	if err := cmd.Run(); err != nil {
+		slog.Error("Failed to convert image", "source", sourceFile, "target", fullPath, "error", err)
+		c.String(http.StatusInternalServerError, "Failed to convert image")
+		return
+	}
+
+	// 4. Return the converted file
+	c.File(fullPath)
 }
