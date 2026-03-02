@@ -17,10 +17,6 @@ import (
 	"ywwzwb/imagespider/models"
 )
 
-const FileIntegrityCheckerPluginID string = "FileIntegrityChecker"
-
-const scanBatchSize = 100
-const scanInterval = 60 * time.Second
 
 type FileIntegrityChecker struct {
 	app             interfaces.IApplication
@@ -28,6 +24,8 @@ type FileIntegrityChecker struct {
 	stopFinishChain chan bool
 	dbService       interfaces.IDBService
 	goroutinCount   atomic.Int32
+	defaultBatchSize int
+	defaultScanInterval time.Duration
 }
 
 func newFileIntegrityChecker() *FileIntegrityChecker {
@@ -47,18 +45,30 @@ func (f *FileIntegrityChecker) Name() string {
 }
 
 func (f *FileIntegrityChecker) ID() string {
-	return FileIntegrityCheckerPluginID
+	return interfaces.FileIntegrityCheckerPluginID
 }
 
 func (f *FileIntegrityChecker) Load(app interfaces.IApplication) error {
 	f.app = app
 	// 获取数据库服务
-	dbService, err := app.GetService(f.ID(), DBPluginID, interfaces.DBServiceID)
+	dbService, err := app.GetService(f.ID(), interfaces.DBPluginID, interfaces.DBServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err
 	}
 	f.dbService = dbService.(interfaces.IDBService)
+
+	// 设置默认值
+	cfg := app.GetAppConfig().FileIntegrityCheckerConfig
+	f.defaultBatchSize = cfg.BatchSize
+	if f.defaultBatchSize <= 0 {
+		f.defaultBatchSize = 100 // 默认批次大小
+	}
+	f.defaultScanInterval = time.Duration(cfg.ScanInterval) * time.Second
+	if f.defaultScanInterval <= 0 {
+		f.defaultScanInterval = 60 * time.Second // 默认扫描间隔
+	}
+
 	return nil
 }
 
@@ -93,13 +103,13 @@ func (f *FileIntegrityChecker) scanForSourceID(sourceID string) {
 		}
 
 		// 使用 ListDownloadedImagesWithUnknownStatus 获取未检测过的已下载图片
-		result, err := f.dbService.ListDownloadedImagesWithUnknownStatus(sourceID, scanBatchSize)
+		result, err := f.dbService.ListDownloadedImagesWithUnknownStatus(sourceID, f.defaultBatchSize)
 		if err != nil {
 			logger.Error("failed to list downloaded images", "error", err)
 			select {
 			case <-f.stopChain:
 				goto exit
-			case <-time.After(scanInterval):
+			case <-time.After(f.defaultScanInterval):
 				continue
 			}
 		}
@@ -109,7 +119,7 @@ func (f *FileIntegrityChecker) scanForSourceID(sourceID string) {
 			select {
 			case <-f.stopChain:
 				goto exit
-			case <-time.After(scanInterval):
+			case <-time.After(f.defaultScanInterval):
 				continue
 			}
 		}

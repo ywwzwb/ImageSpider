@@ -2,6 +2,7 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -41,12 +42,12 @@ func (s *API) Name() string {
 	return "API"
 }
 func (s *API) ID() string {
-	return "API"
+	return interfaces.APIPluginID
 }
 func (s *API) Load(app interfaces.IApplication) error {
 	s.app = app
 
-	dbService, err := app.GetService(s.ID(), DBPluginID, interfaces.DBServiceID)
+	dbService, err := app.GetService(s.ID(), interfaces.DBPluginID, interfaces.DBServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err
@@ -100,16 +101,19 @@ func (s *API) Unload() {
 func (s *API) GetService(serviceID interfaces.ServiceID) (interfaces.IService, error) {
 	return nil, fmt.Errorf("unsupported service")
 }
+// parsePagination 解析分页参数
+func parsePagination(c *gin.Context) (offset, limit int64) {
+	offset, _ = strconv.ParseInt(c.DefaultQuery("offset", "0"), 10, 64)
+	limit, _ = strconv.ParseInt(c.DefaultQuery("limit", "50"), 10, 64)
+	if limit <= 0 || limit > 1000 {
+		limit = 50
+	}
+	return
+}
+
 func (s *API) listAllTags(c *gin.Context) {
 	sourceid := c.Param("sourceid")
-	var offset int64 = 0
-	var limit int64 = 50
-	if v, err := strconv.ParseInt(c.DefaultQuery("offset", "0"), 10, 32); err == nil {
-		offset = v
-	}
-	if v, err := strconv.ParseInt(c.DefaultQuery("limit", "50"), 10, 32); err == nil {
-		limit = v
-	}
+	offset, limit := parsePagination(c)
 	if tagList, err := s.dbService.ListNotGroupTags(sourceid, offset, limit); err == nil {
 		c.JSON(http.StatusOK, tagList)
 	} else {
@@ -118,20 +122,9 @@ func (s *API) listAllTags(c *gin.Context) {
 }
 func (s *API) listImages(c *gin.Context) {
 	sourceid := c.Param("sourceid")
-	var offset int64 = 0
-	var limit int64 = 50
-	if v, err := strconv.ParseInt(c.DefaultQuery("offset", "0"), 10, 32); err == nil {
-		offset = v
-	}
-	if v, err := strconv.ParseInt(c.DefaultQuery("limit", "50"), 10, 32); err == nil {
-		limit = v
-	}
-
-	// Debug: log raw query parameters
-	slog.Debug("listImages request", "query", c.Request.URL.RawQuery)
+	offset, limit := parsePagination(c)
 
 	tags := c.QueryArray("tag")
-	slog.Debug("listImages tags", "tags", tags, "count", len(tags))
 
 	// Parse integrity_status filter
 	var status []models.ImageIntegrityStatus
@@ -143,7 +136,6 @@ func (s *API) listImages(c *gin.Context) {
 			}
 		}
 	}
-	slog.Debug("listImages status", "status", status, "count", len(status))
 
 	if imagList, err := s.dbService.ListDownloadedImage(sourceid, tags, status, offset, limit); err == nil {
 		c.JSON(http.StatusOK, imagList)
@@ -156,7 +148,7 @@ func (s *API) getImage(c *gin.Context) {
 	metaID := c.Param("id")
 	if imagList, err := s.dbService.GetImageMeta(sourceid, metaID); err == nil {
 		c.JSON(http.StatusOK, imagList)
-	} else if _, ok := err.(DBCommonError); ok {
+	} else if errors.Is(err, interfaces.ErrNotFound) {
 		c.JSON(http.StatusNotFound, map[string]any{"error": err.Error()})
 	} else {
 		c.JSON(http.StatusInternalServerError, map[string]any{"error": err.Error()})

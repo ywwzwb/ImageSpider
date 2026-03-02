@@ -16,24 +16,17 @@ import (
 	"github.com/lib/pq"
 )
 
-const DBPluginID string = "DB"
 
 type DB struct {
 	app    interfaces.IApplication
 	config config.DatabaseConfig
 	db     *sql.DB
 }
-type DBCommonError int
+// DBError 数据库错误类型
+type DBError string
 
-const NotFound DBCommonError = 1
-
-func (e DBCommonError) Error() string {
-	switch e {
-	case NotFound:
-		return "not found"
-	default:
-		return "unknown error"
-	}
+func (e DBError) Error() string {
+	return string(e)
 }
 func newDB() *DB {
 	DB := DB{}
@@ -49,7 +42,7 @@ func (s *DB) Name() string {
 	return "DB"
 }
 func (s *DB) ID() string {
-	return DBPluginID
+	return interfaces.DBPluginID
 }
 func (s *DB) Load(app interfaces.IApplication) error {
 	s.app = app
@@ -523,7 +516,7 @@ func (s *DB) GetImageMeta(source string, id string) (*models.ImageMeta, error) {
 		}
 		return &meta, nil
 	}
-	return nil, NotFound
+	return nil, interfaces.ErrNotFound
 }
 
 // DeleteImageFile 删除图片文件（包括缩略图），并将local_path设置为空

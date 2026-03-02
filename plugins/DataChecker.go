@@ -10,7 +10,6 @@ import (
 	"ywwzwb/imagespider/interfaces"
 )
 
-const DataCheckerPluginID string = "DataChecker"
 
 type DataChecker struct {
 	app             interfaces.IApplication
@@ -37,13 +36,13 @@ func (d *DataChecker) Name() string {
 }
 
 func (d *DataChecker) ID() string {
-	return DataCheckerPluginID
+	return interfaces.DataCheckerPluginID
 }
 
 func (d *DataChecker) Load(app interfaces.IApplication) error {
 	d.app = app
 	// 获取数据库服务
-	dbService, err := app.GetService(d.ID(), DBPluginID, interfaces.DBServiceID)
+	dbService, err := app.GetService(d.ID(), interfaces.DBPluginID, interfaces.DBServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err

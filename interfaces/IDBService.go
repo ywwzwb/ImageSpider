@@ -1,10 +1,16 @@
 package interfaces
 
 import (
+	"errors"
+
 	"ywwzwb/imagespider/models"
 )
 
-const DBServiceID ServiceID = "IDBService"
+// DBServiceID 数据库服务 ID
+const DBServiceID ServiceID = "DBService"
+
+// ErrNotFound 记录不存在
+var ErrNotFound = errors.New("not found")
 
 type IDBService interface {
 	InitSource(id string) error

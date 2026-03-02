@@ -102,14 +102,14 @@ func init() {
 	spider := newSpider()
 	spider.stopChain = make(chan bool)
 	spider.stopFinishChain = make(chan bool)
-	interfaces.Plugins[newSpider().ID()] = spider
+	interfaces.Plugins[spider.ID()] = spider
 }
 
 func (s *Spider) Name() string {
 	return "spider"
 }
 func (s *Spider) ID() string {
-	return "spider"
+	return interfaces.SpiderPluginID
 }
 func (s *Spider) Load(app interfaces.IApplication) error {
 	s.app = app
@@ -117,21 +117,21 @@ func (s *Spider) Load(app interfaces.IApplication) error {
 	if len(s.config) == 0 {
 		return fmt.Errorf("no spiders")
 	}
-	dbService, err := app.GetService(s.ID(), DBPluginID, interfaces.DBServiceID)
+	dbService, err := app.GetService(s.ID(), interfaces.DBPluginID, interfaces.DBServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err
 	}
 	s.dbService = dbService.(interfaces.IDBService)
 
-	rawImageDownloaderService, err := app.GetService(s.ID(), ImageDownloaderPluginID, interfaces.ImageDownloaderDownloaderServiceID)
+	rawImageDownloaderService, err := app.GetService(s.ID(), interfaces.ImageDownloaderPluginID, interfaces.ImageDownloaderServiceID)
 	if err != nil {
 		slog.Error("get image downloader service failed", "error", err)
 		return err
 	}
 	imageDownloaderService := rawImageDownloaderService.(interfaces.IImageDownloaderService)
 
-	dataCheckService, err := app.GetService(s.ID(), DataCheckerPluginID, interfaces.DataCheckerServiceID)
+	dataCheckService, err := app.GetService(s.ID(), interfaces.DataCheckerPluginID, interfaces.DataCheckerServiceID)
 	if err != nil {
 		slog.Error("get db service failed", "error", err)
 		return err
@@ -139,7 +139,7 @@ func (s *Spider) Load(app interfaces.IApplication) error {
 	s.dataCheckService = dataCheckService.(interfaces.IDataCheckerService)
 
 	// 获取文件完整性检查服务（可选）
-	fileIntegrityCheckerService, err := app.GetService(s.ID(), FileIntegrityCheckerPluginID, interfaces.FileIntegrityCheckerServiceID)
+	fileIntegrityCheckerService, err := app.GetService(s.ID(), interfaces.FileIntegrityCheckerPluginID, interfaces.FileIntegrityCheckerServiceID)
 	if err == nil {
 		s.fileIntegrityCheckerService = fileIntegrityCheckerService.(interfaces.IFileIntegrityCheckerService)
 	} else {
