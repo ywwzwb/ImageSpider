@@ -145,53 +145,47 @@ function handleImageError() {
   console.error('Failed to load image:', props.image.id)
 }
 
-async function handleDelete() {
-  try {
-    await Modal.confirm({
-      title: '确认删除',
-      content: `确定要删除图片 ${props.image.id} 吗？`,
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消'
-    })
-
-    const response = await imageApi.batchDelete(sourceStore.currentSource, [props.image.id])
-    if (response.deleted && response.deleted > 0) {
-      message.success('删除成功')
-      emit('refresh')
-    } else {
-      message.error('删除失败')
+function handleDelete() {
+  Modal.confirm({
+    title: '确认删除',
+    content: `确定要删除图片 ${props.image.id} 吗？`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      const response = await imageApi.batchDelete(sourceStore.currentSource, [props.image.id])
+      if (response.deleted && response.deleted > 0) {
+        message.success('删除成功')
+        emit('refresh')
+      } else {
+        message.error('删除失败')
+      }
+    },
+    onCancel: () => {
+      // 用户点击取消，不执行任何操作
     }
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('Failed to delete image:', error)
-      message.error('删除失败')
-    }
-  }
+  })
 }
 
-async function handleRedownload() {
-  try {
-    await Modal.confirm({
-      title: '确认重新下载',
-      content: `确定要重新下载图片 ${props.image.id} 吗？`,
-      okText: '重新下载',
-      cancelText: '取消'
-    })
-
-    const response = await imageApi.batchRedownload(sourceStore.currentSource, [props.image.id])
-    if (response.redownloaded && response.redownloaded > 0) {
-      message.success('已标记为重新下载')
-      emit('refresh')
-    } else {
-      message.error('重新下载失败')
+function handleRedownload() {
+  Modal.confirm({
+    title: '确认重新下载',
+    content: `确定要重新下载图片 ${props.image.id} 吗？`,
+    okText: '重新下载',
+    cancelText: '取消',
+    onOk: async () => {
+      const response = await imageApi.batchRedownload(sourceStore.currentSource, [props.image.id])
+      if (response.redownloaded && response.redownloaded > 0) {
+        message.success('已标记为重新下载')
+        emit('refresh')
+      } else {
+        message.error('重新下载失败')
+      }
+    },
+    onCancel: () => {
+      // 用户点击取消，不执行任何操作
     }
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error('Failed to redownload image:', error)
-      message.error('重新下载失败')
-    }
-  }
+  })
 }
 </script>
 
