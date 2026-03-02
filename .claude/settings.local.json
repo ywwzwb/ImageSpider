@@ -9,7 +9,13 @@
       "Bash(git diff:*)",
       "Bash(npm install)",
       "Bash(npm run build)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(go mod tidy)",
+      "Bash(go vet ./...)",
+      "Bash(git add -A)",
+      "Bash(git reset HEAD embed/www/index.html)",
+      "Bash(git reset HEAD embed/www/index.html .claude/settings.local.json)",
+      "Bash(git checkout -- embed/www/index.html)"
     ]
   }
 }

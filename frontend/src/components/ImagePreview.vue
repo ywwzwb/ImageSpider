@@ -142,14 +142,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount, h } from 'vue'
 import { useSourceStore } from '@/stores/source'
 import { useFilterStore } from '@/stores/filter'
 import { imageApi } from '@/api/image'
 import { tagApi } from '@/api/tag'
 import type { ImageMeta } from '@/types/api'
 import { ImageIntegrityStatus } from '@/types/api'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import { getIntegrityStatusText, getIntegrityStatusColor, formatDate } from '@/utils/format'
 
 interface Props {
@@ -291,20 +291,44 @@ async function handleRedownload() {
   }
 }
 
-async function handleSetCover() {
+function handleSetCover() {
   if (!currentImage.value || !(currentImage.value.tags || []).length) {
     message.warning('该图片没有标签')
     return
   }
 
-  try {
-    const tag = currentImage.value.tags[0]
-    await tagApi.setTagCover(sourceStore.currentSource, tag, currentImage.value.id)
-    message.success('已设置为标签封面')
-  } catch (error) {
-    console.error('Failed to set tag cover:', error)
-    message.error('设置封面失败')
-  }
+  const tags = currentImage.value.tags
+  let selectedTag = tags[0]
+
+  // 创建选择标签的 Modal
+  Modal.confirm({
+    title: '选择要设置为封面的标签',
+    content: () => h('div', { style: 'padding: 16px 0' }, [
+      h('select', {
+        style: {
+          width: '100%',
+          padding: '8px 12px',
+          borderRadius: '4px',
+          border: '1px solid #d9d9d9',
+          fontSize: '14px'
+        },
+        onChange: (e: Event) => {
+          selectedTag = (e.target as HTMLSelectElement).value
+        }
+      }, tags.map(tag => h('option', { value: tag, key: tag }, tag)))
+    ]),
+    okText: '设为封面',
+    cancelText: '取消',
+    async onOk() {
+      try {
+        await tagApi.setTagCover(sourceStore.currentSource, selectedTag, currentImage.value!.id)
+        message.success(`已设置为「${selectedTag}」的封面`)
+      } catch (error) {
+        console.error('Failed to set tag cover:', error)
+        message.error('设置封面失败')
+      }
+    }
+  })
 }
 
 function handleImageError() {
