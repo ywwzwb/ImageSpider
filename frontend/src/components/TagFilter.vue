@@ -58,13 +58,28 @@
 import { computed } from 'vue'
 import { useFilterStore } from '@/stores/filter'
 import { useSourceStore } from '@/stores/source'
+import type { TagInfo } from '@/types/api'
 
 const filterStore = useFilterStore()
 const sourceStore = useSourceStore()
 
-// Computed: separate selected and unselected tags
+// Build a map of loaded tags for quick lookup
+const loadedTagMap = computed(() => {
+  const map = new Map<string, number>()
+  for (const tag of filterStore.tags) {
+    map.set(tag.tag, tag.count)
+  }
+  return map
+})
+
+// Computed: all selected tags (including those not loaded yet)
 const selectedTags = computed(() => {
-  return filterStore.tags.filter(tag => filterStore.hasTag(tag.tag))
+  const selected: TagInfo[] = []
+  for (const tagName of filterStore.selectedTagList) {
+    const count = loadedTagMap.value.get(tagName) || 0
+    selected.push({ tag: tagName, count })
+  }
+  return selected
 })
 
 const unselectedTags = computed(() => {
