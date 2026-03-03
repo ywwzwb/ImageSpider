@@ -270,7 +270,7 @@ func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
 	if meta.LocalPath != nil && len(*meta.LocalPath) != 0 {
 		for _, tag := range meta.Tags {
 			// 插入 cover 信息
-			s.db.Exec("UPDATE tags SET cover = $1 WHERE cover IS NULL AND tag = $2 AND source_id = $3", meta.LocalPath, tag, meta.SourceID)
+			s.db.Exec("UPDATE tags SET cover = $1 WHERE cover IS NULL AND tag = $2 AND source_id = $3", meta.ID, tag, meta.SourceID)
 			// 刷新标签封面（如果还没有封面）
 			s.refreshTagCover(meta.SourceID, tag)
 		}
@@ -298,7 +298,7 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
         i.source_id AS cover_source_id
     FROM tags t
     LEFT JOIN images i
-        ON t.cover = i.local_path
+        ON t.cover = i.id
         AND i.source_id = t.source_id
     WHERE
         t.source_id = $1
@@ -550,7 +550,7 @@ func (s *DB) DeleteImageFile(source string, id string) error {
 	}
 
 	// 检查并刷新相关标签的封面（如果当前图片是封面）
-	if err := s.resetTagCoversOfImagePath(source, *meta.LocalPath); err != nil {
+	if err := s.resetTagCoversOfImageID(source, id); err != nil {
 		logger.Error("failed to refresh tag covers", "error", err)
 		// 不返回错误，继续执行
 	}
@@ -590,7 +590,7 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 	// 如果local_path不为空，删除相关文件
 	if meta.LocalPath != nil && *meta.LocalPath != "" {
 		// 检查并刷新相关标签的封面（如果当前图片是封面）
-		if err := s.resetTagCoversOfImagePath(source, *meta.LocalPath); err != nil {
+		if err := s.resetTagCoversOfImageID(source, id); err != nil {
 			logger.Error("failed to refresh tag covers", "error", err)
 			// 不返回错误，继续执行
 		}
@@ -664,12 +664,12 @@ func (s *DB) refreshTagCover(source string, tag string) error {
 	return nil
 }
 
-// resetTagCoversOfImagePath 检查图片相关的所有标签，刷新封面（如果当前图片是封面）
-func (s *DB) resetTagCoversOfImagePath(source string, imagePath string) error {
-	logger := slog.With("source", source, "image path", imagePath)
+// resetTagCoversOfImageID 检查图片相关的所有标签，刷新封面（如果当前图片是封面）
+func (s *DB) resetTagCoversOfImageID(source string, imageID string) error {
+	logger := slog.With("source", source, "imageID", imageID)
 
 	// 查询哪些标签引用了这张图片作为封面
-	rows, err := s.db.Query("SELECT tag FROM tags WHERE source_id = $1 AND cover = $2", source, imagePath)
+	rows, err := s.db.Query("SELECT tag FROM tags WHERE source_id = $1 AND cover = $2", source, imageID)
 	if err != nil {
 		logger.Error("failed to query tags using image as cover", "error", err)
 		return err
