@@ -14,7 +14,7 @@
         <!-- Image wrapper for scrolling when zoomed -->
         <div class="image-wrapper" :class="{ zoomed: isZoomed }">
           <img
-            v-if="currentImage?.localPath && fullImageUrl"
+            v-if="currentImage?.localPath && fullImageUrl && !imageError"
             :src="fullImageUrl"
             :alt="currentImage?.id"
             class="preview-image"
@@ -32,7 +32,7 @@
         </div>
 
         <!-- Zoom hint - positioned relative to container -->
-        <div v-if="currentImage?.localPath && fullImageUrl" class="zoom-hint" @click="toggleZoom">
+        <div v-if="currentImage?.localPath && fullImageUrl && !imageError" class="zoom-hint" @click="toggleZoom">
           {{ isZoomed ? '点击缩小' : '点击放大' }}
         </div>
       </div>
@@ -174,6 +174,7 @@ const filterStore = useFilterStore()
 const modalWidth = ref(800)
 const maxImageHeight = ref(600)
 const isZoomed = ref(false)
+const imageError = ref(false)
 
 // Computed
 const currentImage = computed(() => props.images?.[props.currentIndex] || null)
@@ -333,6 +334,7 @@ function handleSetCover() {
 
 function handleImageError() {
   console.error('Failed to load image:', currentImage.value?.id)
+  imageError.value = true
 }
 
 function toggleZoom() {
@@ -352,8 +354,9 @@ function calculateModalSize() {
 
 // Watch for visibility changes
 watch(() => props.currentIndex, () => {
-  // Reset zoom when image changes
+  // Reset zoom and error when image changes
   isZoomed.value = false
+  imageError.value = false
   // Scroll to top when image changes
   const content = document.querySelector('.preview-content')
   if (content) {

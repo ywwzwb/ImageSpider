@@ -2,7 +2,7 @@
   <div class="image-card" :class="{ selected: isSelected }">
     <div class="image-container" @click="handleImageClick">
       <img
-        v-if="image.localPath && thumbnailUrl"
+        v-if="image.localPath && thumbnailUrl && !imageError"
         :src="thumbnailUrl"
         :alt="image.id"
         class="thumbnail"
@@ -87,7 +87,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import type { ImageMeta } from '@/types/api'
 import { useAppStore } from '@/stores/app'
 import { useFilterStore } from '@/stores/filter'
@@ -116,11 +116,19 @@ const appStore = useAppStore()
 const filterStore = useFilterStore()
 const sourceStore = useSourceStore()
 
+// Image load error state
+const imageError = ref(false)
+
 // Computed
 const isSelected = computed(() => appStore.isImageSelected(props.image.id))
 const thumbnailUrl = computed(() => getThumbnailPath(props.image.localPath))
 const visibleTags = computed(() => (props.image.tags || []).slice(0, 3))
 const hiddenTagCount = computed(() => Math.max(0, (props.image.tags || []).length - 3))
+
+// Reset error state when localPath changes
+watch(() => props.image.localPath, () => {
+  imageError.value = false
+})
 
 // Methods
 function handleImageClick() {
@@ -143,6 +151,7 @@ function handleTagClick(tag: string) {
 
 function handleImageError() {
   console.error('Failed to load image:', props.image.id)
+  imageError.value = true
 }
 
 function handleDelete() {
