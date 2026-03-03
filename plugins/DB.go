@@ -583,7 +583,7 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 			logger.Error("failed to update tag counts", "error", err)
 		}
 		// 删除没有图片的tag
-		if _, err := s.db.Exec("DELETE tags WHERE count = 0"); err != nil {
+		if _, err := s.db.Exec("DELETE FROM tags WHERE count = 0"); err != nil {
 			logger.Error("failed to clear empty tag", "error", err)
 		}
 	}
@@ -688,7 +688,7 @@ func (s *DB) resetTagCoversOfImagePath(source string, imagePath string) error {
 
 	// 为每个需要刷新的标签选择新的封面
 	for _, tag := range tagsToRefresh {
-		if _, err = s.db.Exec("UPDATE tags SET cover = '' WHERE source_id = $2 AND tag = $3", source, tag); err != nil {
+		if _, err = s.db.Exec("UPDATE tags SET cover = '' WHERE source_id = $1 AND tag = $2", source, tag); err != nil {
 			logger.Error("failed to clear old tag cover", "tag", tag, "error", err)
 			continue
 		}
