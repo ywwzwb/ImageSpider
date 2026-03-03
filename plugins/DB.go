@@ -199,6 +199,27 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 
 	_, err := s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time, integrity_status) VALUES ($1, $2, $3, $4, $5, $6, $7)",
 		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime, int16(meta.IntegrityStatus))
+	if err != nil {
+		slog.Warn("insert failed, maybe partition not exist, create now")
+		// insert partition
+		partitionName := fmt.Sprintf("%04d%02d", meta.PostTime.UTC().Year(), meta.PostTime.UTC().Month())
+		begin := fmt.Sprintf("%04d-%02d-01", meta.PostTime.UTC().Year(), meta.PostTime.UTC().Month())
+		end := fmt.Sprintf("%04d-%02d-01", meta.PostTime.AddDate(0, 1, 0).UTC().Year(), meta.PostTime.AddDate(0, 1, 0).UTC().Month())
+		sql := fmt.Sprintf("CREATE TABLE IF NOT EXISTS images_source_%s_%s PARTITION OF images_source_%s FOR VALUES FROM ('%s') TO ('%s');",
+			meta.SourceID, partitionName, meta.SourceID, begin, end)
+		_, err = s.db.Exec(sql)
+		if err != nil {
+			slog.Error("create partition failed", "error", err, "sql", sql)
+			return err
+		}
+		slog.Info("create partition succeed, retry insert", "sql", sql)
+		_, err = s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time, integrity_status) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+			meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime, int16(meta.IntegrityStatus))
+		if err != nil {
+			slog.Error("insert meta failed", "error", err)
+			return err
+		}
+	}
 	for _, tag := range meta.Tags {
 		// 插入 tag 信息
 		s.db.Exec("INSERT INTO tags (tag, source_id, count) VALUES ($1, $2, 0)", tag, meta.SourceID)
@@ -208,28 +229,6 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 		if meta.LocalPath != nil && *meta.LocalPath != "" {
 			s.refreshTagCover(meta.SourceID, tag)
 		}
-	}
-	if err == nil {
-		return nil
-	}
-	slog.Warn("insert failed, maybe partition not exist, create now")
-	// insert partition
-	partitionName := fmt.Sprintf("%04d%02d", meta.PostTime.UTC().Year(), meta.PostTime.UTC().Month())
-	begin := fmt.Sprintf("%04d-%02d-01", meta.PostTime.UTC().Year(), meta.PostTime.UTC().Month())
-	end := fmt.Sprintf("%04d-%02d-01", meta.PostTime.AddDate(0, 1, 0).UTC().Year(), meta.PostTime.AddDate(0, 1, 0).UTC().Month())
-	sql := fmt.Sprintf("CREATE TABLE IF NOT EXISTS images_source_%s_%s PARTITION OF images_source_%s FOR VALUES FROM ('%s') TO ('%s');",
-		meta.SourceID, partitionName, meta.SourceID, begin, end)
-	_, err = s.db.Exec(sql)
-	if err != nil {
-		slog.Error("create partition failed", "error", err, "sql", sql)
-		return err
-	}
-	slog.Info("create partition succeed, retry insert", "sql", sql)
-	_, err = s.db.Exec("INSERT INTO images (id, source_id, tags, image_url, local_path, post_time, integrity_status) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-		meta.ID, meta.SourceID, pq.Array(meta.Tags), meta.ImageURL, meta.LocalPath, meta.PostTime, int16(meta.IntegrityStatus))
-	if err != nil {
-		slog.Error("insert meta failed", "error", err)
-		return err
 	}
 	return nil
 }
@@ -633,16 +632,16 @@ func (s *DB) refreshTagCover(source string, tag string) error {
 	}
 
 	// 从该标签的图片中选择一张作为封面（优先选择有本地路径的图片）
-	var coverImagePath string
+	var coverImageID string
 	err = s.db.QueryRow(`
-		SELECT local_path FROM images
+		SELECT id FROM images
 		WHERE source_id = $1
 		AND tags @> ARRAY[$2]
 		AND local_path IS NOT NULL
 		AND local_path != ''
 		ORDER BY post_time DESC
 		LIMIT 1
-	`, source, tag).Scan(&coverImagePath)
+	`, source, tag).Scan(&coverImageID)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -654,13 +653,13 @@ func (s *DB) refreshTagCover(source string, tag string) error {
 	}
 
 	// 更新标签封面
-	_, err = s.db.Exec("UPDATE tags SET cover = $1 WHERE source_id = $2 AND tag = $3", coverImagePath, source, tag)
+	_, err = s.db.Exec("UPDATE tags SET cover = $1 WHERE source_id = $2 AND tag = $3", coverImageID, source, tag)
 	if err != nil {
 		logger.Error("failed to update tag cover", "error", err)
 		return err
 	}
 
-	logger.Info("updated tag cover", "cover_image_path", coverImagePath)
+	logger.Info("updated tag cover", "cover_image_id", coverImageID)
 	return nil
 }
 
@@ -724,8 +723,8 @@ func (s *DB) SetTagCover(source string, tag string, imageID string) error {
 		logger.Error("image does not belong to the specified tag")
 		return fmt.Errorf("image does not belong to the specified tag")
 	}
-	// 更新标签封面
-	_, err = s.db.Exec("UPDATE tags SET cover = $1 WHERE source_id = $2 AND tag = $3", meta.LocalPath, source, tag)
+	// 更新标签封面（存储图片ID）
+	_, err = s.db.Exec("UPDATE tags SET cover = $1 WHERE source_id = $2 AND tag = $3", imageID, source, tag)
 	if err != nil {
 		logger.Error("failed to set tag cover", "error", err)
 		return fmt.Errorf("failed to set tag cover: %w", err)
