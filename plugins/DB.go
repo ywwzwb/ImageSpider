@@ -321,11 +321,12 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 		var (
 			tagInfo models.TagInfo
 			cover   models.ImageMeta
+			coverID sql.NullString
 		)
 		err := rows.Scan(
 			&tagInfo.Tag,
 			&tagInfo.Count,
-			&cover.ID,
+			&coverID,
 			pq.Array(&cover.Tags),
 			&cover.LocalPath,
 			&cover.ImageURL,
@@ -335,7 +336,10 @@ func (s *DB) ListNotGroupTags(source string, offset, limit int64) (*models.TagLi
 		if err != nil {
 			return nil, err
 		}
-		tagInfo.Cover = cover
+		if coverID.Valid {
+			cover.ID = coverID.String
+			tagInfo.Cover = cover
+		}
 		tagList = append(tagList, tagInfo)
 	}
 	if err = rows.Err(); err != nil {
