@@ -174,6 +174,9 @@ func (s *DB) GetMeta(id, source string) (*models.ImageMeta, bool) {
 	}
 	defer rows.Close()
 	if !rows.Next() {
+		if err = rows.Err(); err != nil {
+			slog.Error("rows next failed", "error", err)
+		}
 		return nil, false
 	}
 	meta := models.ImageMeta{}
@@ -222,12 +225,18 @@ func (s *DB) InsertMeta(meta models.ImageMeta) error {
 	}
 	for _, tag := range meta.Tags {
 		// 插入 tag 信息
-		s.db.Exec("INSERT INTO tags (tag, source_id, count) VALUES ($1, $2, 0)", tag, meta.SourceID)
-		s.db.Exec("UPDATE tags SET count = count + 1 WHERE tag = $1 AND source_id = $2", tag, meta.SourceID)
+		if _, err := s.db.Exec("INSERT INTO tags (tag, source_id, count) VALUES ($1, $2, 0)", tag, meta.SourceID); err != nil {
+			slog.Error("failed to insert tag", "tag", tag, "error", err)
+		}
+		if _, err := s.db.Exec("UPDATE tags SET count = count + 1 WHERE tag = $1 AND source_id = $2", tag, meta.SourceID); err != nil {
+			slog.Error("failed to update tag count", "tag", tag, "error", err)
+		}
 
 		// 刷新标签封面（如果还没有封面）
 		if meta.LocalPath != nil && *meta.LocalPath != "" {
-			s.refreshTagCover(meta.SourceID, tag)
+			if err := s.refreshTagCover(meta.SourceID, tag); err != nil {
+				slog.Error("failed to refresh tag cover", "tag", tag, "error", err)
+			}
 		}
 	}
 	return nil
@@ -258,6 +267,9 @@ func (s *DB) GetMetaLocalPathNULL(source string, maxSize int) []models.ImageMeta
 		meta.IntegrityStatus = models.ImageIntegrityUnknown
 		metas = append(metas, meta)
 	}
+	if err = rows.Err(); err != nil {
+		slog.Error("rows iteration failed", "error", err)
+	}
 	return metas
 }
 func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
@@ -269,9 +281,13 @@ func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
 	if meta.LocalPath != nil && len(*meta.LocalPath) != 0 {
 		for _, tag := range meta.Tags {
 			// 插入 cover 信息
-			s.db.Exec("UPDATE tags SET cover = $1 WHERE cover IS NULL AND tag = $2 AND source_id = $3", meta.ID, tag, meta.SourceID)
+			if _, err := s.db.Exec("UPDATE tags SET cover = $1 WHERE cover IS NULL AND tag = $2 AND source_id = $3", meta.ID, tag, meta.SourceID); err != nil {
+				slog.Error("failed to update tag cover", "tag", tag, "error", err)
+			}
 			// 刷新标签封面（如果还没有封面）
-			s.refreshTagCover(meta.SourceID, tag)
+			if err := s.refreshTagCover(meta.SourceID, tag); err != nil {
+				slog.Error("failed to refresh tag cover", "tag", tag, "error", err)
+			}
 		}
 	}
 	return nil
@@ -444,6 +460,10 @@ func (s *DB) ListDownloadedImage(source string, tags []string, status []models.I
 		}
 		imageList.ImageList = append(imageList.ImageList, meta)
 	}
+	if err = rows.Err(); err != nil {
+		slog.Error("rows iteration failed", "error", err)
+		return nil, err
+	}
 	return imageList, nil
 }
 
@@ -489,6 +509,10 @@ func (s *DB) ListDownloadedImagesWithUnknownStatus(source string, maxSize int) (
 			meta.IntegrityStatus = models.ImageIntegrityUnknown
 		}
 		imageList.ImageList = append(imageList.ImageList, meta)
+	}
+	if err = rows.Err(); err != nil {
+		slog.Error("rows iteration failed", "error", err)
+		return nil, err
 	}
 	return imageList, nil
 }
@@ -576,17 +600,8 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 		logger.Error("failed to get image meta", "error", err)
 		return fmt.Errorf("failed to get image meta: %w", err)
 	}
-	for _, tag := range meta.Tags {
-		// 更新相关标签的计数（减1）
-		if _, err := s.db.Exec("UPDATE tags SET count = count - 1 WHERE tag = $1 AND source_id = $2", tag, meta.SourceID); err != nil {
-			logger.Error("failed to update tag counts", "error", err)
-		}
-		// 删除没有图片的tag
-		if _, err := s.db.Exec("DELETE FROM tags WHERE count = 0"); err != nil {
-			logger.Error("failed to clear empty tag", "error", err)
-		}
-	}
-	// 如果local_path不为空，删除相关文件
+
+	// 如果local_path不为空，先删除相关文件
 	if meta.LocalPath != nil && *meta.LocalPath != "" {
 		// 检查并刷新相关标签的封面（如果当前图片是封面）
 		if err := s.resetTagCoversOfImageID(source, id); err != nil {
@@ -602,11 +617,24 @@ func (s *DB) DeleteImageRecord(source string, id string) error {
 			return fmt.Errorf("failed to delete image files: %w", err)
 		}
 	}
+
 	// 删除数据库记录
 	_, err = s.db.Exec("DELETE FROM images WHERE source_id = $1 AND id = $2", source, id)
 	if err != nil {
 		logger.Error("failed to delete database record", "error", err)
 		return fmt.Errorf("failed to delete database record: %w", err)
+	}
+
+	// 图片删除成功后，更新标签计数
+	for _, tag := range meta.Tags {
+		// 更新相关标签的计数（减1）
+		if _, err := s.db.Exec("UPDATE tags SET count = count - 1 WHERE tag = $1 AND source_id = $2", tag, meta.SourceID); err != nil {
+			logger.Error("failed to update tag counts", "error", err)
+		}
+		// 删除没有图片的tag
+		if _, err := s.db.Exec("DELETE FROM tags WHERE source_id = $1 AND count = 0", meta.SourceID); err != nil {
+			logger.Error("failed to clear empty tag", "error", err)
+		}
 	}
 
 	logger.Info("image record deleted successfully")
@@ -683,6 +711,9 @@ func (s *DB) resetTagCoversOfImageID(source string, imageID string) error {
 			continue
 		}
 		tagsToRefresh = append(tagsToRefresh, tag)
+	}
+	if err = rows.Err(); err != nil {
+		logger.Error("rows iteration failed", "error", err)
 	}
 
 	// 为每个需要刷新的标签选择新的封面
