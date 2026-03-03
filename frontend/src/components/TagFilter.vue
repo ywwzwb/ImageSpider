@@ -5,6 +5,21 @@
       <span v-if="selectedTags.length > 0" class="selected-count">({{ selectedTags.length }})</span>
     </div>
 
+    <!-- Tag input section -->
+    <div class="tag-input-section">
+      <a-input-search
+        v-model:value="tagInput"
+        placeholder="输入标签名称"
+        size="small"
+        @search="addTagFromInput"
+        @press-enter="addTagFromInput"
+      >
+        <template #enterButton>
+          <a-button type="primary" size="small">添加</a-button>
+        </template>
+      </a-input-search>
+    </div>
+
     <!-- Selected tags section -->
     <div v-if="selectedTags.length > 0" class="selected-tags-section">
       <div class="selected-tags-header">
@@ -55,7 +70,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useFilterStore } from '@/stores/filter'
 import { useSourceStore } from '@/stores/source'
 
@@ -66,6 +81,17 @@ interface SelectedTagDisplay {
 
 const filterStore = useFilterStore()
 const sourceStore = useSourceStore()
+
+// Tag input
+const tagInput = ref('')
+
+function addTagFromInput() {
+  const tag = tagInput.value.trim()
+  if (tag && !filterStore.hasTag(tag)) {
+    filterStore.addTag(tag)
+    tagInput.value = ''
+  }
+}
 
 // Build a map of loaded tags for quick lookup
 const loadedTagMap = computed(() => {
@@ -114,6 +140,10 @@ async function loadMore() {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.tag-input-section {
+  margin-bottom: 12px;
 }
 
 .selected-count {
