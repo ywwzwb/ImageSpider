@@ -257,6 +257,8 @@ function handleGridMouseDown(event: MouseEvent) {
   if (!appStore.batchMode || event.button !== 0) return
   if (window.matchMedia('(hover: none)').matches) return
 
+  suppressNextClick = false
+
   const target = event.target as HTMLElement | null
   if (target?.closest('button, a, input, .ant-checkbox-wrapper, .selection-checkbox, .ant-tag, .ant-pagination, .pagination-container, .batch-bar')) {
     return
@@ -275,10 +277,17 @@ function handleGridMouseDown(event: MouseEvent) {
   marquee.currentY = event.clientY
   window.addEventListener('mousemove', handleGridMouseMove)
   window.addEventListener('mouseup', handleGridMouseUp)
+  window.addEventListener('blur', cancelMarquee)
 }
 
 function handleGridMouseMove(event: MouseEvent) {
   if (!pendingStart) return
+
+  // 丢失 mouseup（拖出窗口/切窗）后，按钮已松开就立即收尾，避免悬停继续改选区
+  if (!(event.buttons & 1)) {
+    handleGridMouseUp(event)
+    return
+  }
 
   if (!dragStarted) {
     const distance = Math.hypot(event.clientX - pendingStart.x, event.clientY - pendingStart.y)
@@ -325,15 +334,20 @@ function applyMarqueeSelection() {
   appStore.setSelectedImages(unionSelection(pendingStart.initial, hitIds))
 }
 
-function handleGridMouseUp() {
+function handleGridMouseUp(event?: MouseEvent) {
   window.removeEventListener('mousemove', handleGridMouseMove)
   window.removeEventListener('mouseup', handleGridMouseUp)
+  window.removeEventListener('blur', cancelMarquee)
   if (rafId) {
     window.cancelAnimationFrame(rafId)
     rafId = 0
   }
 
   if (dragStarted) {
+    if (event) {
+      marquee.currentX = event.clientX
+      marquee.currentY = event.clientY
+    }
     applyMarqueeSelection()
     if (marqueeLastId) {
       anchorId.value = marqueeLastId
@@ -364,6 +378,7 @@ function handleGridClickCapture(event: MouseEvent) {
 function cancelMarquee() {
   window.removeEventListener('mousemove', handleGridMouseMove)
   window.removeEventListener('mouseup', handleGridMouseUp)
+  window.removeEventListener('blur', cancelMarquee)
   if (rafId) {
     window.cancelAnimationFrame(rafId)
     rafId = 0
@@ -372,6 +387,8 @@ function cancelMarquee() {
     window.clearTimeout(suppressTimer)
     suppressTimer = undefined
   }
+  // 定时器被清掉后标志不能留在 true，否则下一个正常 click 会被吞
+  suppressNextClick = false
   marquee.active = false
   pendingStart = null
   dragStarted = false
