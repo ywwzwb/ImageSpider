@@ -48,7 +48,15 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function selectAll(ids: string[]) {
+    setSelectedImages(ids)
+  }
+
+  function setSelectedImages(ids: string[]) {
     selectedImages.value = new Set(ids)
+  }
+
+  function addSelectedImages(ids: string[]) {
+    ids.forEach(id => selectedImages.value.add(id))
   }
 
   function clearSelection() {
@@ -74,6 +82,8 @@ export const useAppStore = defineStore('app', () => {
     isImageSelected,
     toggleImageSelection,
     selectAll,
+    setSelectedImages,
+    addSelectedImages,
     clearSelection,
     getSelectedIds
   }
