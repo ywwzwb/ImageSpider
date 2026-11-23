@@ -7,7 +7,7 @@
         <a-button size="small" @click="appStore.selectAll(currentImageIds)">
           全选当前页
         </a-button>
-        <a-button size="small" @click="appStore.clearSelection()">
+        <a-button size="small" @click="handleClearSelection">
           取消选择
         </a-button>
         <a-popconfirm
@@ -67,6 +67,7 @@
           :image="image"
           @preview="handlePreview"
           @refresh="loadImages"
+          @batch-select="handleBatchSelect"
         />
       </a-col>
     </a-row>
@@ -117,6 +118,7 @@ import { useFilterStore } from '@/stores/filter'
 import { imageApi } from '@/api/image'
 import type { ImageMeta } from '@/types/api'
 import { getIntegrityStatusColor } from '@/utils/format'
+import { computeRangeIds } from '@/utils/selection'
 
 const appStore = useAppStore()
 const sourceStore = useSourceStore()
@@ -134,6 +136,15 @@ const previewIndex = ref(0)
 // Computed
 const currentImageIds = computed(() => images.value.map(img => img.id))
 
+// Shift 连选的锚点（最近一次普通点击的图片）
+const anchorId = ref<string | null>(null)
+
+watch(() => appStore.batchMode, (on) => {
+  if (!on) {
+    anchorId.value = null
+  }
+})
+
 // Watch for filter changes
 watch(
   [
@@ -149,6 +160,7 @@ watch(
 
 // Load images
 async function loadImages() {
+  anchorId.value = null
   if (!sourceStore.currentSource) return
 
   loading.value = true
@@ -180,6 +192,28 @@ async function loadImages() {
   } finally {
     loading.value = false
   }
+}
+
+// Selection handlers
+function handleBatchSelect(payload: { id: string; shiftKey: boolean; ctrlKey: boolean }) {
+  if (payload.shiftKey && anchorId.value) {
+    const range = computeRangeIds(currentImageIds.value, anchorId.value, payload.id)
+    if (range.length > 0) {
+      const shouldSelect = !appStore.isImageSelected(payload.id)
+      const next = new Set(appStore.selectedImages)
+      range.forEach(id => (shouldSelect ? next.add(id) : next.delete(id)))
+      appStore.setSelectedImages(Array.from(next))
+      return
+    }
+  }
+
+  appStore.toggleImageSelection(payload.id)
+  anchorId.value = payload.id
+}
+
+function handleClearSelection() {
+  appStore.clearSelection()
+  anchorId.value = null
 }
 
 // Pagination handlers
