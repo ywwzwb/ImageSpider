@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { computeRangeIds, rectsIntersect } from './selection.ts'
+import { computeRangeIds, rectsIntersect, unionSelection } from './selection.ts'
 
 const ids = ['a', 'b', 'c', 'd', 'e']
 
@@ -37,4 +37,10 @@ test('rectsIntersect 完全分离或仅边缘相切返回 false', () => {
     rectsIntersect({ left: 0, right: 10, top: 0, bottom: 10 }, { left: 10, right: 20, top: 0, bottom: 10 }),
     false
   )
+})
+
+test('unionSelection 保留原有选择并加入命中项，不修改原集合', () => {
+  const initial = new Set(['a'])
+  assert.deepEqual(unionSelection(initial, ['c', 'b']), ['a', 'c', 'b'])
+  assert.deepEqual(Array.from(initial), ['a'])
 })

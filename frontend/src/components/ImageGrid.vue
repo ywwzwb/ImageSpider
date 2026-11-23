@@ -130,7 +130,7 @@ import { useFilterStore } from '@/stores/filter'
 import { imageApi } from '@/api/image'
 import type { ImageMeta } from '@/types/api'
 import { getIntegrityStatusColor } from '@/utils/format'
-import { computeRangeIds, rectsIntersect } from '@/utils/selection'
+import { computeRangeIds, rectsIntersect, unionSelection } from '@/utils/selection'
 
 const appStore = useAppStore()
 const sourceStore = useSourceStore()
@@ -167,7 +167,7 @@ const marquee = reactive({
   currentX: 0,
   currentY: 0
 })
-let pendingStart: { x: number; y: number; additive: boolean; initial: Set<string> } | null = null
+let pendingStart: { x: number; y: number; initial: Set<string> } | null = null
 let dragStarted = false
 let suppressNextClick = false
 let suppressTimer: number | undefined
@@ -265,7 +265,6 @@ function handleGridMouseDown(event: MouseEvent) {
   pendingStart = {
     x: event.clientX,
     y: event.clientY,
-    additive: event.shiftKey || event.ctrlKey || event.metaKey,
     initial: new Set(appStore.selectedImages)
   }
   dragStarted = false
@@ -311,19 +310,19 @@ function applyMarqueeSelection() {
     top: Math.min(marquee.startY, marquee.currentY),
     bottom: Math.max(marquee.startY, marquee.currentY)
   }
-  const next = new Set<string>(pendingStart.additive ? pendingStart.initial : [])
+  const hitIds: string[] = []
   let lastId: string | null = null
 
   gridRef.value.querySelectorAll<HTMLElement>('[data-image-id]').forEach(el => {
     const id = el.dataset.imageId
     if (id && rectsIntersect(rect, el.getBoundingClientRect())) {
-      next.add(id)
+      hitIds.push(id)
       lastId = id
     }
   })
 
   marqueeLastId = lastId
-  appStore.setSelectedImages(Array.from(next))
+  appStore.setSelectedImages(unionSelection(pendingStart.initial, hitIds))
 }
 
 function handleGridMouseUp() {

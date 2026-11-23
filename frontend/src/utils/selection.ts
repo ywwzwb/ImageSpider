@@ -19,3 +19,9 @@ export function computeRangeIds(ids: string[], anchorId: string, targetId: strin
 export function rectsIntersect(a: SelectionRect, b: SelectionRect): boolean {
   return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
 }
+
+export function unionSelection(initial: Iterable<string>, ids: string[]): string[] {
+  const next = new Set(initial)
+  ids.forEach(id => next.add(id))
+  return Array.from(next)
+}
