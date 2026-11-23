@@ -1,5 +1,11 @@
 <template>
-  <div class="image-grid">
+  <div
+    ref="gridRef"
+    class="image-grid"
+    :class="{ 'is-dragging': marquee.active }"
+    @mousedown="handleGridMouseDown"
+    @click.capture="handleGridClickCapture"
+  >
     <!-- Batch operation bar -->
     <div v-if="appStore.batchMode" class="batch-bar">
       <a-space>
@@ -56,6 +62,7 @@
       <a-col
         v-for="image in images"
         :key="image.id"
+        :data-image-id="image.id"
         :xs="24"
         :sm="12"
         :md="12"
@@ -104,11 +111,16 @@
       :images="images"
       @refresh="loadImages"
     />
+
+    <!-- Marquee selection box -->
+    <Teleport to="body">
+      <div v-if="marquee.active" class="marquee-box" :style="marqueeStyle" />
+    </Teleport>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, reactive, watch, onBeforeUnmount } from 'vue'
 import { message } from 'ant-design-vue'
 import ImageCard from './ImageCard.vue'
 import ImagePreview from './ImagePreview.vue'
@@ -118,7 +130,7 @@ import { useFilterStore } from '@/stores/filter'
 import { imageApi } from '@/api/image'
 import type { ImageMeta } from '@/types/api'
 import { getIntegrityStatusColor } from '@/utils/format'
-import { computeRangeIds } from '@/utils/selection'
+import { computeRangeIds, rectsIntersect } from '@/utils/selection'
 
 const appStore = useAppStore()
 const sourceStore = useSourceStore()
@@ -142,8 +154,32 @@ const anchorId = ref<string | null>(null)
 watch(() => appStore.batchMode, (on) => {
   if (!on) {
     anchorId.value = null
+    cancelMarquee()
   }
 })
+
+// 框选状态
+const gridRef = ref<HTMLElement>()
+const marquee = reactive({
+  active: false,
+  startX: 0,
+  startY: 0,
+  currentX: 0,
+  currentY: 0
+})
+let pendingStart: { x: number; y: number; additive: boolean; initial: Set<string> } | null = null
+let dragStarted = false
+let suppressNextClick = false
+let suppressTimer: number | undefined
+let marqueeLastId: string | null = null
+let rafId = 0
+
+const marqueeStyle = computed(() => ({
+  left: `${Math.min(marquee.startX, marquee.currentX)}px`,
+  top: `${Math.min(marquee.startY, marquee.currentY)}px`,
+  width: `${Math.abs(marquee.currentX - marquee.startX)}px`,
+  height: `${Math.abs(marquee.currentY - marquee.startY)}px`
+}))
 
 // Watch for filter changes
 watch(
@@ -215,6 +251,135 @@ function handleClearSelection() {
   appStore.clearSelection()
   anchorId.value = null
 }
+
+// 鼠标拖拽框选
+function handleGridMouseDown(event: MouseEvent) {
+  if (!appStore.batchMode || event.button !== 0) return
+  if (window.matchMedia('(hover: none)').matches) return
+
+  const target = event.target as HTMLElement | null
+  if (target?.closest('button, a, input, .ant-checkbox-wrapper, .selection-checkbox, .ant-tag, .ant-pagination, .pagination-container, .batch-bar')) {
+    return
+  }
+
+  pendingStart = {
+    x: event.clientX,
+    y: event.clientY,
+    additive: event.shiftKey || event.ctrlKey || event.metaKey,
+    initial: new Set(appStore.selectedImages)
+  }
+  dragStarted = false
+  marqueeLastId = null
+  marquee.startX = event.clientX
+  marquee.startY = event.clientY
+  marquee.currentX = event.clientX
+  marquee.currentY = event.clientY
+  window.addEventListener('mousemove', handleGridMouseMove)
+  window.addEventListener('mouseup', handleGridMouseUp)
+}
+
+function handleGridMouseMove(event: MouseEvent) {
+  if (!pendingStart) return
+
+  if (!dragStarted) {
+    const distance = Math.hypot(event.clientX - pendingStart.x, event.clientY - pendingStart.y)
+    if (distance < 5) return
+    dragStarted = true
+    marquee.active = true
+    document.body.style.userSelect = 'none'
+    window.getSelection()?.removeAllRanges()
+  }
+
+  event.preventDefault()
+  marquee.currentX = event.clientX
+  marquee.currentY = event.clientY
+
+  if (!rafId) {
+    rafId = window.requestAnimationFrame(() => {
+      rafId = 0
+      applyMarqueeSelection()
+    })
+  }
+}
+
+function applyMarqueeSelection() {
+  if (!pendingStart || !gridRef.value) return
+
+  const rect = {
+    left: Math.min(marquee.startX, marquee.currentX),
+    right: Math.max(marquee.startX, marquee.currentX),
+    top: Math.min(marquee.startY, marquee.currentY),
+    bottom: Math.max(marquee.startY, marquee.currentY)
+  }
+  const next = new Set<string>(pendingStart.additive ? pendingStart.initial : [])
+  let lastId: string | null = null
+
+  gridRef.value.querySelectorAll<HTMLElement>('[data-image-id]').forEach(el => {
+    const id = el.dataset.imageId
+    if (id && rectsIntersect(rect, el.getBoundingClientRect())) {
+      next.add(id)
+      lastId = id
+    }
+  })
+
+  marqueeLastId = lastId
+  appStore.setSelectedImages(Array.from(next))
+}
+
+function handleGridMouseUp() {
+  window.removeEventListener('mousemove', handleGridMouseMove)
+  window.removeEventListener('mouseup', handleGridMouseUp)
+  if (rafId) {
+    window.cancelAnimationFrame(rafId)
+    rafId = 0
+  }
+
+  if (dragStarted) {
+    applyMarqueeSelection()
+    if (marqueeLastId) {
+      anchorId.value = marqueeLastId
+    }
+    suppressNextClick = true
+    if (suppressTimer !== undefined) {
+      window.clearTimeout(suppressTimer)
+    }
+    suppressTimer = window.setTimeout(() => {
+      suppressNextClick = false
+      suppressTimer = undefined
+    }, 100)
+  }
+
+  marquee.active = false
+  pendingStart = null
+  dragStarted = false
+  document.body.style.userSelect = ''
+}
+
+function handleGridClickCapture(event: MouseEvent) {
+  if (!suppressNextClick) return
+  suppressNextClick = false
+  event.stopPropagation()
+  event.preventDefault()
+}
+
+function cancelMarquee() {
+  window.removeEventListener('mousemove', handleGridMouseMove)
+  window.removeEventListener('mouseup', handleGridMouseUp)
+  if (rafId) {
+    window.cancelAnimationFrame(rafId)
+    rafId = 0
+  }
+  if (suppressTimer !== undefined) {
+    window.clearTimeout(suppressTimer)
+    suppressTimer = undefined
+  }
+  marquee.active = false
+  pendingStart = null
+  dragStarted = false
+  document.body.style.userSelect = ''
+}
+
+onBeforeUnmount(cancelMarquee)
 
 // Pagination handlers
 function handlePageChange(page: number, newPageSize: number) {
@@ -318,6 +483,18 @@ defineExpose({ loadImages })
 <style scoped>
 .image-grid {
   width: 100%;
+}
+
+.image-grid.is-dragging {
+  user-select: none;
+}
+
+.marquee-box {
+  position: fixed;
+  border: 1px solid #1890ff;
+  background: rgba(24, 144, 255, 0.12);
+  pointer-events: none;
+  z-index: 1000;
 }
 
 .batch-bar {
