@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test src/utils/*.test.ts",
     "build": "vue-tsc && vite build",
     "build:debug": "vue-tsc && DEBUG=true vite build",
     "preview": "vite preview"
