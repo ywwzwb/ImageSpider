@@ -6,6 +6,7 @@
         :src="thumbnailUrl"
         :alt="image.id"
         class="thumbnail"
+        draggable="false"
         @error="handleImageError"
       >
       <div v-else class="no-image">
@@ -21,12 +22,8 @@
       </div>
 
       <!-- Selection checkbox -->
-      <div v-if="appStore.batchMode" class="selection-checkbox">
-        <a-checkbox
-          :checked="isSelected"
-          @click.stop
-          @change="handleSelectionChange"
-        />
+      <div v-if="appStore.batchMode" class="selection-checkbox" @click.stop="handleSelectionClick">
+        <a-checkbox :checked="isSelected" />
       </div>
 
       <!-- Integrity status -->
@@ -104,6 +101,7 @@ interface Props {
 interface Emits {
   (e: 'preview', image: ImageMeta): void
   (e: 'refresh'): void
+  (e: 'batch-select', payload: { id: string; shiftKey: boolean; ctrlKey: boolean }): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -131,16 +129,24 @@ watch(() => props.image.localPath, () => {
 })
 
 // Methods
-function handleImageClick() {
+function handleImageClick(event: MouseEvent) {
   if (appStore.batchMode) {
-    appStore.toggleImageSelection(props.image.id)
+    emitBatchSelect(event)
   } else {
     emit('preview', props.image)
   }
 }
 
-function handleSelectionChange() {
-  appStore.toggleImageSelection(props.image.id)
+function handleSelectionClick(event: MouseEvent) {
+  emitBatchSelect(event)
+}
+
+function emitBatchSelect(event: MouseEvent) {
+  emit('batch-select', {
+    id: props.image.id,
+    shiftKey: event.shiftKey,
+    ctrlKey: event.ctrlKey || event.metaKey
+  })
 }
 
 function handleTagClick(tag: string) {
