@@ -309,7 +309,7 @@ func (s *DB) RecordDownloadFailure(source string, id string, postTime time.Time,
 		UPDATE images
 		SET download_attempts = download_attempts + 1,
 			local_path = CASE WHEN download_attempts + 1 >= $4 THEN '' ELSE NULL END,
-			next_download_at = CASE WHEN download_attempts + 1 >= $4 THEN NULL ELSE $5 END
+			next_download_at = CASE WHEN download_attempts + 1 >= $4 THEN NULL::timestamptz ELSE $5::timestamptz END
 		WHERE source_id = $1 AND id = $2 AND post_time = $3
 		RETURNING download_attempts, local_path`,
 		source, id, postTime, maxAttempts, nextDownloadAt).Scan(&attempts, &localPath)
