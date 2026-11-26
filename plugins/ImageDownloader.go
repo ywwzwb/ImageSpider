@@ -28,6 +28,26 @@ type ImageDownloader struct {
 	defaultFetchInterval time.Duration
 }
 
+type downloadOutcome int
+
+const (
+	downloadOutcomeSuccess downloadOutcome = iota
+	downloadOutcomeFailed
+	downloadOutcomeStopped
+)
+
+func failureRetryPolicy(cfg *config.ImageDownloaderConfig) (int, time.Duration) {
+	maxAttempts := int(cfg.FailureRetryMaxCount)
+	if maxAttempts <= 0 {
+		maxAttempts = 5
+	}
+	retryInterval := time.Duration(cfg.FailureRetryInterval) * time.Second
+	if retryInterval <= 0 {
+		retryInterval = time.Hour
+	}
+	return maxAttempts, retryInterval
+}
+
 func newImageDownloader() *ImageDownloader {
 	downloader := ImageDownloader{}
 	downloader.stopChain = make(chan bool)
@@ -128,9 +148,11 @@ func (i *ImageDownloader) downloadForSourceID(sourceID string, cfg *config.Image
 			default:
 			}
 			exit := false
-			i.downloadImage(httpClient, sourceID, meta, cfg, &exit)
-			if exit {
+			switch i.downloadImage(httpClient, sourceID, meta, cfg, &exit) {
+			case downloadOutcomeStopped:
 				goto exit
+			case downloadOutcomeFailed:
+				i.markAsFailed(meta, cfg, logger)
 			}
 		}
 	}
@@ -139,7 +161,7 @@ exit:
 	logger.Info("download routine exit")
 }
 
-func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string, meta models.ImageMeta, cfg *config.ImageDownloaderConfig, exit *bool) {
+func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string, meta models.ImageMeta, cfg *config.ImageDownloaderConfig, exit *bool) downloadOutcome {
 	hash := meta.Hash()
 	logger := slog.With("sourceID", sourceID).With("metaID", meta.ID, "hash", hash)
 	tempDownloadFilePath := path.Join(i.downloadTempPath, hash+path.Ext(meta.ImageURL))
@@ -155,23 +177,25 @@ func (i *ImageDownloader) downloadImage(httpClient *http.Client, sourceID string
 	if _, err := os.Stat(mainImagePath); err == nil {
 		logger.Info("main image exists, save to database")
 		i.saveImagePath(meta, imageOutputPath+"."+outputFormat)
-		return
+		return downloadOutcomeSuccess
 	}
 
 	// 检查临时下载文件是否已存在
 	if _, err := os.Stat(tempDownloadFilePath); err == nil {
 		logger.Info("temp file exists, convert it")
-		i.convertAndSave(tempDownloadFilePath, mainImagePath, imageOutputAbsolutePath, meta, logger)
-		return
+		return i.convertAndSave(tempDownloadFilePath, mainImagePath, imageOutputAbsolutePath, meta, logger)
 	}
 
 	// 执行下载
 	if !i.performDownload(httpClient, meta, cfg, tempDownloadFilePathDownloading, tempDownloadFilePath, logger, exit) {
-		return
+		if *exit {
+			return downloadOutcomeStopped
+		}
+		return downloadOutcomeFailed
 	}
 
 	// 转换并保存
-	i.convertAndSave(tempDownloadFilePath, mainImagePath, imageOutputAbsolutePath, meta, logger)
+	return i.convertAndSave(tempDownloadFilePath, mainImagePath, imageOutputAbsolutePath, meta, logger)
 }
 
 // performDownload 执行下载，返回是否成功
@@ -222,7 +246,6 @@ func (i *ImageDownloader) performDownload(httpClient *http.Client, meta models.I
 
 	if resp == nil {
 		logger.Error("fetch image failed", "error", err)
-		i.markAsFailed(meta, logger)
 		return false
 	}
 	defer resp.Body.Close()
@@ -284,13 +307,12 @@ func (i *ImageDownloader) performDownload(httpClient *http.Client, meta models.I
 
 // convertAndSave 转换图片并保存到数据库
 func (i *ImageDownloader) convertAndSave(tempPath, mainImagePath, imageOutputAbsolutePath string,
-	meta models.ImageMeta, logger *slog.Logger) {
+	meta models.ImageMeta, logger *slog.Logger) downloadOutcome {
 	// 使用配置的默认质量转换主图
 	defaultQuality := i.imageConvertService.GetDefaultQuality()
 	if err := i.imageConvertService.ConvertImage(tempPath, mainImagePath, defaultQuality); err != nil {
 		logger.Error("convert main image failed", "error", err)
-		i.markAsFailed(meta, logger)
-		return
+		return downloadOutcomeFailed
 	}
 	logger.Info("main image converted")
 
@@ -312,15 +334,22 @@ func (i *ImageDownloader) convertAndSave(tempPath, mainImagePath, imageOutputAbs
 	imageOutputPath := path.Join(hash[0:2], hash[2:4], hash[4:6], hash) + "." + outputFormat
 	i.saveImagePath(meta, imageOutputPath)
 	os.Remove(tempPath)
+	return downloadOutcomeSuccess
 }
 
-// markAsFailed 标记为失败（保存空路径）
-func (i *ImageDownloader) markAsFailed(meta models.ImageMeta, logger *slog.Logger) {
-	empty := ""
-	meta.LocalPath = &empty
-	if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
-		logger.Error("update local path failed", "error", err)
+// markAsFailed 记录一次下载失败：累计次数未到上限时保留 NULL 等待重试，到上限后标记为空路径永久失败
+func (i *ImageDownloader) markAsFailed(meta models.ImageMeta, cfg *config.ImageDownloaderConfig, logger *slog.Logger) {
+	maxAttempts, retryInterval := failureRetryPolicy(cfg)
+	attempts, permanent, err := i.dbService.RecordDownloadFailure(meta.SourceID, meta.ID, meta.PostTime, maxAttempts, retryInterval)
+	if err != nil {
+		logger.Error("record download failure failed", "error", err)
+		return
 	}
+	if permanent {
+		logger.Warn("download failed permanently, giving up", "attempts", attempts, "maxAttempts", maxAttempts)
+		return
+	}
+	logger.Warn("download failed, retry later", "attempts", attempts, "maxAttempts", maxAttempts, "retryAfter", retryInterval.String())
 }
 
 // saveImagePath 保存图片路径到数据库

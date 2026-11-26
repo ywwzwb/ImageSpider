@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"ywwzwb/imagespider/embed"
 	"ywwzwb/imagespider/interfaces"
 	"ywwzwb/imagespider/models"
@@ -248,6 +249,7 @@ func (s *DB) GetMetaLocalPathNULL(source string, maxSize int) []models.ImageMeta
 			FROM images
 			WHERE source_id = $1
 				AND local_path IS NULL
+				AND (next_download_at IS NULL OR next_download_at <= now())
 			ORDER BY post_time
 			DESC LIMIT $2`, source, maxSize)
 	if err != nil {
@@ -273,7 +275,7 @@ func (s *DB) GetMetaLocalPathNULL(source string, maxSize int) []models.ImageMeta
 	return metas
 }
 func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
-	_, err := s.db.Exec("UPDATE images SET local_path = $1 WHERE id = $2 AND source_id = $3 and post_time=$4", meta.LocalPath, meta.ID, meta.SourceID, meta.PostTime)
+	_, err := s.db.Exec("UPDATE images SET local_path = $1, download_attempts = 0, next_download_at = NULL WHERE id = $2 AND source_id = $3 and post_time=$4", meta.LocalPath, meta.ID, meta.SourceID, meta.PostTime)
 	if err != nil {
 		slog.Error("update local path failed", "error", err)
 		return err
@@ -292,6 +294,34 @@ func (s *DB) UpdateLocalPathForMeta(meta models.ImageMeta) error {
 	}
 	return nil
 }
+
+// RecordDownloadFailure 记录一次下载失败；累计失败次数达到 maxAttempts 后标记为永久失败（空路径），
+// 否则保留 local_path = NULL 并在 retryAfter 之后重试。
+func (s *DB) RecordDownloadFailure(source string, id string, postTime time.Time, maxAttempts int, retryAfter time.Duration) (int, bool, error) {
+	if maxAttempts <= 0 {
+		maxAttempts = 1
+	}
+	nextDownloadAt := time.Now().Add(retryAfter)
+
+	var attempts int
+	var localPath *string
+	err := s.db.QueryRow(`
+		UPDATE images
+		SET download_attempts = download_attempts + 1,
+			local_path = CASE WHEN download_attempts + 1 >= $4 THEN '' ELSE NULL END,
+			next_download_at = CASE WHEN download_attempts + 1 >= $4 THEN NULL ELSE $5 END
+		WHERE source_id = $1 AND id = $2 AND post_time = $3
+		RETURNING download_attempts, local_path`,
+		source, id, postTime, maxAttempts, nextDownloadAt).Scan(&attempts, &localPath)
+	if err != nil {
+		slog.Error("record download failure failed", "source", source, "id", id, "error", err)
+		return 0, false, err
+	}
+
+	permanent := localPath != nil && *localPath == ""
+	return attempts, permanent, nil
+}
+
 func (s *DB) GetService(serviceID interfaces.ServiceID) (interfaces.IService, error) {
 	switch serviceID {
 	case interfaces.DBServiceID:
@@ -546,7 +576,7 @@ func (s *DB) GetImageMeta(source string, id string) (*models.ImageMeta, error) {
 	return nil, interfaces.ErrNotFound
 }
 
-// DeleteImageFile 删除图片文件（包括缩略图），并将local_path设置为空
+// DeleteImageFile 删除图片文件（包括缩略图），并将 local_path 置为 NULL 以便重新下载
 func (s *DB) DeleteImageFile(source string, id string) error {
 	logger := slog.With("source", source, "id", id)
 
@@ -557,36 +587,29 @@ func (s *DB) DeleteImageFile(source string, id string) error {
 		return fmt.Errorf("failed to get image meta: %w", err)
 	}
 
-	// 如果local_path为空或nil，直接返回
-	if meta.LocalPath == nil || *meta.LocalPath == "" {
-		logger.Warn("local_path is empty, nothing to delete")
-		return nil
+	// 如果有本地文件，先删除主文件和所有匹配的缩略图
+	if meta.LocalPath != nil && *meta.LocalPath != "" {
+		fullPath := filepath.Join(s.app.GetAppConfig().ImageDir, *meta.LocalPath)
+		if err := s.deleteImageFiles(fullPath); err != nil {
+			logger.Error("failed to delete image files", "error", err)
+			return fmt.Errorf("failed to delete image files: %w", err)
+		}
+
+		// 检查并刷新相关标签的封面（如果当前图片是封面）
+		if err := s.resetTagCoversOfImageID(source, id); err != nil {
+			logger.Error("failed to refresh tag covers", "error", err)
+			// 不返回错误，继续执行
+		}
 	}
 
-	// 拼接完整的文件路径
-	fullPath := filepath.Join(s.app.GetAppConfig().ImageDir, *meta.LocalPath)
-
-	// 删除主文件和所有匹配的缩略图
-	if err := s.deleteImageFiles(fullPath); err != nil {
-		logger.Error("failed to delete image files", "error", err)
-		return fmt.Errorf("failed to delete image files: %w", err)
-	}
-
-	// 检查并刷新相关标签的封面（如果当前图片是封面）
-	if err := s.resetTagCoversOfImageID(source, id); err != nil {
-		logger.Error("failed to refresh tag covers", "error", err)
-		// 不返回错误，继续执行
-	}
-
-	// 将local_path设置为空
-	empty := ""
-	meta.LocalPath = &empty
+	// 将 local_path 置为 NULL，让下载器重新入队；同时清零失败重试状态
+	meta.LocalPath = nil
 	if err := s.UpdateLocalPathForMeta(*meta); err != nil {
 		logger.Error("failed to update local_path in database", "error", err)
 		return fmt.Errorf("failed to update local_path: %w", err)
 	}
 
-	logger.Info("image file deleted successfully")
+	logger.Info("image file deleted and queued for redownload")
 	return nil
 }
 

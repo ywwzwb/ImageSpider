@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"errors"
+	"time"
 
 	"ywwzwb/imagespider/models"
 )
@@ -18,6 +19,9 @@ type IDBService interface {
 	InsertMeta(meta models.ImageMeta) error
 	GetMetaLocalPathNULL(source string, maxSize int) []models.ImageMeta
 	UpdateLocalPathForMeta(meta models.ImageMeta) error
+	// RecordDownloadFailure 记录一次下载失败；累计失败次数达到 maxAttempts 后标记为永久失败（空路径），
+	// 否则保留 local_path = NULL 并在 retryAfter 之后重试。返回累计失败次数和是否永久失败。
+	RecordDownloadFailure(source string, id string, postTime time.Time, maxAttempts int, retryAfter time.Duration) (attempts int, permanent bool, err error)
 
 	ListNotGroupTags(source string, offset, limit int64) (*models.TagList, error)
 	/**
