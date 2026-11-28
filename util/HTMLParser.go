@@ -20,7 +20,10 @@ func NewParser(config *config.HTMLParserConfig) *HTMLParser {
 func (p *HTMLParser) Parse(doc *goquery.Document) ([]string, error) {
 	result := make([]string, 0)
 	elements := doc.Find(p.config.Selector)
-	if elements == nil {
+	if elements.Length() == 0 && p.config.FallbackSelector != "" {
+		elements = doc.Find(p.config.FallbackSelector)
+	}
+	if elements.Length() == 0 {
 		return result, fmt.Errorf("no elements found, selector: %s", p.config.Selector)
 	}
 	elements.Each(func(i int, s *goquery.Selection) {

@@ -164,6 +164,7 @@ type ElementMatherConfig struct {
 
 type HTMLParserConfig struct {
 	Selector            string               `json:"selector" yaml:"selector"`
+	FallbackSelector    string               `json:"fallbackSelector" yaml:"fallbackSelector"`
 	Value               ValueConfig          `json:"value" yaml:"value"`
 	ElementMatherConfig *ElementMatherConfig `json:"matcher" yaml:"matcher"`
 	Ext                 map[string]string    `json:"ext" yaml:"ext"`

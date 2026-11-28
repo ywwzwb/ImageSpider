@@ -1,6 +1,7 @@
 package plugins
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"os"
@@ -10,6 +11,50 @@ import (
 	"ywwzwb/imagespider/interfaces"
 	"ywwzwb/imagespider/models/config"
 )
+
+func isAVIFHeader(header []byte) bool {
+	if len(header) < 12 || string(header[4:8]) != "ftyp" {
+		return false
+	}
+	brand := string(header[8:12])
+	if brand == "avif" || brand == "avis" {
+		return true
+	}
+	size := int(binary.BigEndian.Uint32(header[0:4]))
+	if size < 16 {
+		return false
+	}
+	if size > len(header) {
+		size = len(header)
+	}
+	for i := 16; i+4 <= size; i += 4 {
+		b := string(header[i : i+4])
+		if b == "avif" || b == "avis" {
+			return true
+		}
+	}
+	return false
+}
+
+func verifyAVIFOutput(output string) error {
+	if !strings.EqualFold(path.Ext(output), ".avif") {
+		return nil
+	}
+	f, err := os.Open(output)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	header := make([]byte, 4096)
+	n, err := f.Read(header)
+	if err != nil && n == 0 {
+		return err
+	}
+	if !isAVIFHeader(header[:n]) {
+		return fmt.Errorf("output is not a valid AVIF file: %s", output)
+	}
+	return nil
+}
 
 
 type ImageConvert struct {
@@ -111,6 +156,12 @@ func (i *ImageConvert) ConvertImage(input, output string, quality int) error {
 		return err
 	}
 
+	if err := verifyAVIFOutput(output); err != nil {
+		logger.Error("convert image output verification failed", "error", err)
+		os.Remove(output)
+		return err
+	}
+
 	logger.Info("image converted successfully")
 	return nil
 }
@@ -164,6 +215,12 @@ func (i *ImageConvert) GenerateThumbnail(input, output string, width, height int
 			"stderr", errOut.String(),
 			"exitCode", cmd.ProcessState.ExitCode(),
 			"cmd", cmd.String())
+		return err
+	}
+
+	if err := verifyAVIFOutput(output); err != nil {
+		logger.Error("thumbnail output verification failed", "error", err)
+		os.Remove(output)
 		return err
 	}
 
