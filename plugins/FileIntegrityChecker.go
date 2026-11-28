@@ -17,21 +17,22 @@ import (
 	"ywwzwb/imagespider/models"
 )
 
-
 type FileIntegrityChecker struct {
-	app             interfaces.IApplication
-	stopChain       chan bool
-	stopFinishChain chan bool
-	dbService       interfaces.IDBService
-	goroutinCount   atomic.Int32
-	defaultBatchSize int
+	app                 interfaces.IApplication
+	stopChain           chan bool
+	stopFinishChain     chan bool
+	dbService           interfaces.IDBService
+	goroutinCount       atomic.Int32
+	defaultBatchSize    int
 	defaultScanInterval time.Duration
+	wakeUp              chan struct{}
 }
 
 func newFileIntegrityChecker() *FileIntegrityChecker {
 	checker := FileIntegrityChecker{}
 	checker.stopChain = make(chan bool)
 	checker.stopFinishChain = make(chan bool)
+	checker.wakeUp = make(chan struct{}, 1)
 	return &checker
 }
 
@@ -92,6 +93,14 @@ func (f *FileIntegrityChecker) StartScanning(sourceID string) {
 	go f.scanForSourceID(sourceID)
 }
 
+// NotifyNewImage 有新图片下载完成时唤醒检查协程；通道满时直接丢弃，避免阻塞下载
+func (f *FileIntegrityChecker) NotifyNewImage(sourceID string) {
+	select {
+	case f.wakeUp <- struct{}{}:
+	default:
+	}
+}
+
 func (f *FileIntegrityChecker) scanForSourceID(sourceID string) {
 	logger := slog.With("sourceID", sourceID)
 	logger.Info("start file integrity scanning")
@@ -115,11 +124,11 @@ func (f *FileIntegrityChecker) scanForSourceID(sourceID string) {
 		}
 
 		if len(result.ImageList) == 0 {
-			logger.Info("no more unverified images, waiting before next check")
+			logger.Info("all downloaded images checked, waiting for new images")
 			select {
 			case <-f.stopChain:
 				goto exit
-			case <-time.After(f.defaultScanInterval):
+			case <-f.wakeUp:
 				continue
 			}
 		}

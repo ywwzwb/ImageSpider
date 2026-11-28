@@ -16,15 +16,16 @@ import (
 )
 
 type ImageDownloader struct {
-	app                 interfaces.IApplication
-	configCount         atomic.Int32
-	stopChain           chan bool
-	stopFinishChain     chan bool
-	downloadTempPath    string
-	dbService           interfaces.IDBService
-	imageConvertService interfaces.IImageConvertService
-	goroutinCount       atomic.Int32
-	defaultBatchSize    int
+	app                  interfaces.IApplication
+	configCount          atomic.Int32
+	stopChain            chan bool
+	stopFinishChain      chan bool
+	downloadTempPath     string
+	dbService            interfaces.IDBService
+	imageConvertService  interfaces.IImageConvertService
+	fileIntegrityChecker interfaces.IFileIntegrityCheckerService
+	goroutinCount        atomic.Int32
+	defaultBatchSize     int
 	defaultFetchInterval time.Duration
 }
 
@@ -87,6 +88,14 @@ func (i *ImageDownloader) Load(app interfaces.IApplication) error {
 		return err
 	}
 	i.imageConvertService = imageConvertService.(interfaces.IImageConvertService)
+
+	// 文件完整性检查服务是可选的：有新图下载后唤醒它去检查
+	fileIntegrityCheckerService, err := app.GetService(i.ID(), interfaces.FileIntegrityCheckerPluginID, interfaces.FileIntegrityCheckerServiceID)
+	if err == nil {
+		i.fileIntegrityChecker = fileIntegrityCheckerService.(interfaces.IFileIntegrityCheckerService)
+	} else {
+		slog.Info("file integrity checker not available, skip notification")
+	}
 	return nil
 }
 func (i *ImageDownloader) Unload() {
@@ -357,5 +366,9 @@ func (i *ImageDownloader) saveImagePath(meta models.ImageMeta, imagePath string)
 	meta.LocalPath = &imagePath
 	if err := i.dbService.UpdateLocalPathForMeta(meta); err != nil {
 		slog.With("metaID", meta.ID).Error("update local path failed", "error", err)
+		return
+	}
+	if i.fileIntegrityChecker != nil {
+		i.fileIntegrityChecker.NotifyNewImage(meta.SourceID)
 	}
 }
